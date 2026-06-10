@@ -25,7 +25,7 @@ jobs:
         gradle-version: '9.2.1'
 
     - name: Initialize Gradle build
-      run: gradle init --type java-application --dsl groovy --package com.uranai --project-name uranai --no-comments
+      run: gradle init --type java-application --dsl groovy --package com.uranai --project-name uranai --no-comments --overwrite
 
     - name: Build with Gradle
       run: gradle build
