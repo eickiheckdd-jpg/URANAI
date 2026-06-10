@@ -32,3 +32,15 @@ jobs:
 
     - name: Run tests
       run: gradle test
+
+    - name: Upload Gradle files
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: gradle-files
+        path: |
+          build.gradle
+          settings.gradle
+          gradle/
+          src/
+          .gitignore
