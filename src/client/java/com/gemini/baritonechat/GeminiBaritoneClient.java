@@ -40,7 +40,6 @@ public class GeminiBaritoneClient implements ClientModInitializer {
                     executeBaritoneCommand(client, baritoneCmd);
                 }
             }
-            return true; // true = still send to server, false = cancel
         });
     }
 
