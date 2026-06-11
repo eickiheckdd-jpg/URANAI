@@ -42,11 +42,34 @@ public class GeminiBaritoneClient implements ClientModInitializer {
     public void onInitializeClient() {
         LOGGER.info("[GeminiBaritone] Client initialised");
 
-        // ── Received chat from other players ──────────────────────────────────
+        // ── Received chat from other players ─────────────────────────────────
+        // signedMessage.getSignedContent() gives ONLY the raw text the player
+        // typed, with no "<PlayerName>" wrapper — exactly what the parser needs.
         ClientReceiveMessageEvents.CHAT.register(
             (message, signedMessage, sender, params, receptionTimestamp) -> {
-                LOGGER.info("[GeminiBaritone] RAW CHAT: " + message.getString()); // DEBUG
-                handleIncoming(message.getString());
+                String raw = null;
+
+                // Best case: signed content = exactly what they typed
+                if (signedMessage != null) {
+                    raw = signedMessage.getSignedContent();
+                }
+
+                // Fallback: strip player name from the decorated Text
+                if (raw == null || raw.isEmpty()) {
+                    raw = message.getString();
+                    // Decorated format is "<PlayerName> text" or "PlayerName: text"
+                    // Strip "<Name> " prefix
+                    if (raw.startsWith("<")) {
+                        int close = raw.indexOf("> ");
+                        if (close != -1) raw = raw.substring(close + 2).trim();
+                    }
+                    // Strip "Name: " prefix
+                    int colon = raw.indexOf(": ");
+                    if (colon != -1 && colon < 32) raw = raw.substring(colon + 2).trim();
+                }
+
+                LOGGER.info("[GeminiBaritone] CHAT raw='{}'", raw);
+                handleIncoming(raw);
             }
         );
 
