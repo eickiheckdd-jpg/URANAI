@@ -3,25 +3,19 @@
   "id": "gemini_baritone",
   "version": "${version}",
   "name": "Gemini Baritone",
-  "description": "Chat-driven Baritone controller: 'hey gemini mine/follow/goto/kill/stop'",
+  "description": "Chat-driven Baritone controller",
   "authors": ["YourName"],
   "contact": {},
-
   "license": "MIT",
-  "icon": "assets/gemini_baritone/icon.png",
-
   "environment": "client",
-
   "entrypoints": {
     "client": [
-      "com.example.geminibaritone.GeminiBaritoneClient"
+      "com.gemini.baritonechat.GeminiBaritoneClient"
     ]
   },
-
   "mixins": [
     "gemini_baritone.mixins.json"
   ],
-
   "depends": {
     "fabricloader": ">=0.18.1",
     "fabric-api": "*",
