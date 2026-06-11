@@ -35,7 +35,7 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-    // Local Baritone jar — put baritone-meteor-1.21.11.jar in the libs/ folder
+    // Local Baritone jar â€” put baritone-meteor-1.21.11.jar in the libs/ folder
     modCompileOnly fileTree(dir: 'libs', include: ['*.jar'])
 }
 
@@ -72,72 +72,5 @@ publishing {
         }
     }
     repositories {
-    }
-}
-
-    mods {
-        'gemini-baritone' {
-            sourceSet sourceSets.main
-            sourceSet sourceSets.client
-        }
-    }
-}
-
-dependencies {
-    // Minecraft + mappings
-    minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
-
-    // Fabric Loader
-    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-
-    // Fabric API (full bundle — contains fabric-message-api-v1)
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-
-    // ── Baritone API ──
-    // Using the Impact fork which has a Maven artifact.
-    // The "api" jar exposes IBaritone, IPlayerContext, ICommandManager, etc.
-    // NOTE: version 1.10.3 targets 1.21.x; check https://github.com/cabaletta/baritone/releases
-    //       if you need a newer build.
-    modCompileOnly('cabaletta:baritone-api:1.10.3') { transitive = false }
-    // If you want Baritone bundled at runtime in dev, swap the line above for:
-    // modRuntimeOnly('cabaletta:baritone-unoptimized:1.10.3') { transitive = false }
-}
-
-processResources {
-    inputs.property 'version', project.version
-
-    filesMatching('fabric.mod.json') {
-        expand 'version': project.version
-    }
-}
-
-tasks.withType(JavaCompile).configureEach {
-    it.options.release = 21
-}
-
-java {
-    // Required: Java 21 for Minecraft 1.21.x
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
-    }
-    withSourcesJar()
-}
-
-jar {
-    from('LICENSE') {
-        rename { "${it}_${project.base.archivesName.get()}" }
-    }
-}
-
-publishing {
-    publications {
-        create('mavenJava', MavenPublication) {
-            artifactId = project.archives_base_name
-            from components.java
-        }
-    }
-    repositories {
-        // local publish only; add remote if needed
     }
 }
