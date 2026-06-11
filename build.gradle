@@ -1,5 +1,5 @@
 plugins {
-    id 'fabric-loom' version '1.4.11'
+    id 'fabric-loom' version "${loom_version}"
     id 'maven-publish'
 }
 
@@ -7,42 +7,27 @@ version = project.mod_version
 group = project.maven_group
 
 repositories {
-    maven {
-        name = "Fabric"
-        url = "https://maven.fabricmc.net/"
-    }
+    maven { url "https://maven.fabricmc.net/" }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 }
 
 loom {
     splitEnvironmentSourceSets()
-
-    mods {
-        "baritone-chatcontrol" {
-            sourceSet sourceSets.main
-            sourceSet sourceSets.client
-        }
-    }
 }
 
-dependencies {
-    minecraft "com.mojang:minecraft:1.21.11"
-    mappings "net.fabricmc:yarn:1.21.11+build.1:v2"
-
-    modImplementation "net.fabricmc:fabric-loader:0.19.3"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:0.141.4+1.21.11"
-    modImplementation files("libs/baritone-meteor-1.21.11.jar")
-}
-
-/* IMPORTANT FIX */
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
 
     withSourcesJar()
-
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -50,27 +35,8 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 processResources {
-    def version = project.version
-    inputs.property "version", version
-
+    inputs.property "version", project.version
     filesMatching("fabric.mod.json") {
-        expand "version": version
-    }
-}
-
-jar {
-    def projectName = project.name
-    inputs.property "projectName", projectName
-
-    from("LICENSE") {
-        rename { "${it}_${projectName}" }
-    }
-}
-
-publishing {
-    publications {
-        create("mavenJava", MavenPublication) {
-            from components.java
-        }
+        expand "version": project.version
     }
 }
