@@ -1,38 +1,34 @@
 package com.gemini.baritonechat;
 
+import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
+
 public class ChatParser {
 
-    public static void handle(String msg) {
-        if (msg == null) return;
+    public static void init() {
 
-        String lower = msg.toLowerCase().trim();
+        ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
 
-        if (!lower.startsWith("hey gemini")) return;
+            String content = message.getString().toLowerCase();
 
-        String content = lower.replaceFirst("hey gemini", "").trim();
+            if (content.startsWith("mine ")) {
+                CommandExecutor.run("#mine " + content.replace("mine ", "").trim());
+            }
 
-        if (content.startsWith("mine ")) {
-            CommandExecutor.run("#mine " + content.replace("mine ", "").trim());
-            return;
-        }
+            if (content.startsWith("follow ")) {
+                CommandExecutor.run("#follow " + content.replace("follow ", "").trim());
+            }
 
-        if (content.startsWith("follow ")) {
-            CommandExecutor.run("#follow player " + content.replace("follow ", "").trim());
-            return;
-        }
+            if (content.startsWith("go to ")) {
+                CommandExecutor.run("#goto " + content.replace("go to ", "").trim());
+            }
 
-        if (content.startsWith("go to ")) {
-            CommandExecutor.run("#goto " + content.replace("go to ", "").trim());
-            return;
-        }
+            if (content.startsWith("kill ")) {
+                CommandExecutor.run("#attack " + content.replace("kill ", "").trim());
+            }
 
-        if (content.startsWith("kill ")) {
-            CommandExecutor.run("#follow player " + content.replace("kill ", "").trim());
-            return;
-        }
-
-        if (content.startsWith("stop")) {
-            CommandExecutor.run("#stop");
-        }
+            if (content.equals("stop")) {
+                CommandExecutor.run("#stop");
+            }
+        });
     }
 }
