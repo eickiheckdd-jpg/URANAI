@@ -1,51 +1,27 @@
 {
-	"schemaVersion": 1,
-	"id": "slsksksk",
-	"version": "${version}",
-	"name": "Slsksksk",
-	"description": "This is an example description! Tell everyone what your mod is about!",
-	"authors": [
-		"Me!"
-	],
-	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
-	},
-	"license": "CC0-1.0",
-	"icon": "assets/slsksksk/icon.png",
-	"environment": "*",
-	"entrypoints": {
-		"main": [
-			{
-				"value": "com.gemini.ver.Slsksksk",
-				"adapter": "kotlin"
-			}
-		],
-		"client": [
-			{
-				"value": "com.gemini.ver.client.SlskskskClient",
-				"adapter": "kotlin"
-			}
-		],
-		"fabric-datagen": [
-			{
-				"value": "com.gemini.ver.client.SlskskskDataGenerator",
-				"adapter": "kotlin"
-			}
-		]
-	},
-	"mixins": [
-		"slsksksk.mixins.json",
-		{
-			"config": "slsksksk.client.mixins.json",
-			"environment": "client"
-		}
-	],
-	"depends": {
-		"fabricloader": ">=0.19.3",
-		"minecraft": "~1.21.11",
-		"java": ">=21",
-		"fabric-api": "*",
-		"fabric-language-kotlin": "*"
-	}
+  "schemaVersion": 1,
+  "id": "baritonechat",
+  "version": "${version}",
+  "name": "BaritoneChat",
+  "description": "A Fabric mod for Baritone Chat integration",
+  "authors": ["Your Name"],
+  "contact": {
+    "homepage": "https://fabricmc.net/",
+    "sources": "https://github.com/yourusername/baritonechat"
+  },
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "main": [
+      "com.gemini.baritonechat.BaritoneChatClient"
+    ]
+  },
+  "mixins": [
+    "baritonechat.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.14.0",
+    "fabric-api": "*",
+    "minecraft": "~1.20"
+  }
 }
