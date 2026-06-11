@@ -64,20 +64,4 @@ public final class GeminiCommandParser {
         }
 
         // ── follow <player> ───────────────────────────────────
-        if (body.toLowerCase().startsWith("follow ")) {
-            String target = body.substring(7).trim();
-            if (target.isEmpty()) return null;
-            return "#follow player " + target;
-        }
-
-        // ── kill <player> — alias for follow ──────────────────
-        // DO NOT use #attack; Baritone does not have that command.
-        if (body.toLowerCase().startsWith("kill ")) {
-            String target = body.substring(5).trim();
-            if (target.isEmpty()) return null;
-            return "#follow player " + target;
-        }
-
-        return null; // unrecognised sub-command
-    }
-}
+        if
