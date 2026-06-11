@@ -1,86 +1,40 @@
 package com.gemini.baritonechat;
 
 import org.jetbrains.annotations.Nullable;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Pure logic parser – no Minecraft imports, no MinecraftClient.
  * Converts "hey gemini ..." chat into a parsed GeminiCommand object.
+ *
+ * Drop feature removed. Block alias map removed (dynamic lookup now in client).
  */
 public final class GeminiCommandParser {
 
     private static final String PREFIX = "hey gemini ";
 
-    private static final Map<String, String> BLOCK_ALIASES = new HashMap<>();
-
-    static {
-        BLOCK_ALIASES.put("diamond",    "diamond_ore deepslate_diamond_ore");
-        BLOCK_ALIASES.put("iron",       "iron_ore deepslate_iron_ore");
-        BLOCK_ALIASES.put("gold",       "gold_ore deepslate_gold_ore nether_gold_ore");
-        BLOCK_ALIASES.put("coal",       "coal_ore deepslate_coal_ore");
-        BLOCK_ALIASES.put("copper",     "copper_ore deepslate_copper_ore");
-        BLOCK_ALIASES.put("emerald",    "emerald_ore deepslate_emerald_ore");
-        BLOCK_ALIASES.put("lapis",      "lapis_ore deepslate_lapis_ore");
-        BLOCK_ALIASES.put("redstone",   "redstone_ore deepslate_redstone_ore");
-        BLOCK_ALIASES.put("ancient debris", "ancient_debris");
-        BLOCK_ALIASES.put("netherite",  "ancient_debris");
-        BLOCK_ALIASES.put("quartz",     "nether_quartz_ore");
-        BLOCK_ALIASES.put("stone",      "stone");
-        BLOCK_ALIASES.put("cobblestone","cobblestone");
-        BLOCK_ALIASES.put("wood",       "oak_log birch_log spruce_log jungle_log acacia_log dark_oak_log mangrove_log cherry_log");
-        BLOCK_ALIASES.put("oak",        "oak_log");
-        BLOCK_ALIASES.put("birch",      "birch_log");
-        BLOCK_ALIASES.put("spruce",     "spruce_log");
-        BLOCK_ALIASES.put("mangrove",   "mangrove_log");
-        BLOCK_ALIASES.put("cherry",     "cherry_log");
-        BLOCK_ALIASES.put("bamboo",     "bamboo_block");
-        BLOCK_ALIASES.put("crimson",    "crimson_stem");
-        BLOCK_ALIASES.put("warped",     "warped_stem");
-        BLOCK_ALIASES.put("planks",     "oak_planks birch_planks spruce_planks jungle_planks acacia_planks dark_oak_planks mangrove_planks cherry_planks crimson_planks warped_planks");
-        BLOCK_ALIASES.put("gravel",     "gravel");
-        BLOCK_ALIASES.put("sand",       "sand");
-        BLOCK_ALIASES.put("dirt",       "dirt");
-        BLOCK_ALIASES.put("obsidian",   "obsidian");
-        BLOCK_ALIASES.put("glowstone",  "glowstone");
-        BLOCK_ALIASES.put("netherrack", "netherrack");
-        BLOCK_ALIASES.put("soul sand",  "soul_sand");
-        BLOCK_ALIASES.put("magma",      "magma_block");
-        BLOCK_ALIASES.put("basalt",     "basalt");
-        BLOCK_ALIASES.put("clay",       "clay");
-        BLOCK_ALIASES.put("endstone",   "end_stone");
-        BLOCK_ALIASES.put("amethyst",   "amethyst_cluster budding_amethyst");
-    }
-
     private GeminiCommandParser() {}
 
-    /**
-     * Represents a parsed gemini command.
-     * type = "baritone", "drop", or null if unrecognised.
-     */
-    public static class GeminiCommand {
-        public final String type;
-        public final String baritoneCmd;   // for type="baritone"
-        public final String dropMode;      // "all", "one", "stack"
-        public final String dropItem;      // item name (for one/stack)
-        public final String dropTarget;    // player name to drop to
+    public enum CommandType {
+        STOP, FOLLOW, KILL, MINE, GOTO, TOWER_UP, WALK
+    }
 
-        // Baritone command constructor
-        public GeminiCommand(String baritoneCmd) {
-            this.type = "baritone";
-            this.baritoneCmd = baritoneCmd;
-            this.dropMode = null;
-            this.dropItem = null;
-            this.dropTarget = null;
+    public static class GeminiCommand {
+        public final CommandType type;
+        public final String arg1; // player name, block name, destination, amount
+        public final String arg2; // extra arg (e.g. block count for tower)
+
+        public GeminiCommand(CommandType type, String arg1, String arg2) {
+            this.type = type;
+            this.arg1 = arg1;
+            this.arg2 = arg2;
         }
 
-        // Drop command constructor
-        public GeminiCommand(String dropMode, String dropItem, String dropTarget) {
-            this.type = "drop";
-            this.baritoneCmd = null;
-            this.dropMode = dropMode;
-            this.dropItem = dropItem;
-            this.dropTarget = dropTarget;
+        public GeminiCommand(CommandType type, String arg1) {
+            this(type, arg1, null);
+        }
+
+        public GeminiCommand(CommandType type) {
+            this(type, null, null);
         }
     }
 
@@ -94,70 +48,54 @@ public final class GeminiCommandParser {
         String body = clean.substring(PREFIX.length()).trim();
         if (body.isEmpty()) return null;
 
+        String lower = body.toLowerCase();
+
         // ── stop ──────────────────────────────────────────────
-        if (body.equalsIgnoreCase("stop")) {
-            return new GeminiCommand("#stop");
+        if (lower.equals("stop")) {
+            return new GeminiCommand(CommandType.STOP);
         }
 
-        // ── mine ──────────────────────────────────────────────
-        if (body.toLowerCase().startsWith("mine ")) {
-            String target = body.substring(5).trim().toLowerCase();
-            if (target.isEmpty()) return null;
-            String expanded = BLOCK_ALIASES.get(target);
-            return new GeminiCommand("#mine " + (expanded != null ? expanded : target));
-        }
-
-        // ── go to ─────────────────────────────────────────────
-        if (body.toLowerCase().startsWith("go to ")) {
-            String dest = body.substring(6).trim();
-            if (dest.isEmpty()) return null;
-            return new GeminiCommand("#goto " + dest);
-        }
-
-        // ── follow ────────────────────────────────────────────
-        if (body.toLowerCase().startsWith("follow ")) {
+        // ── follow <player> ───────────────────────────────────
+        if (lower.startsWith("follow ")) {
             String target = body.substring(7).trim();
             if (target.isEmpty()) return null;
-            return new GeminiCommand("#follow player " + target);
+            return new GeminiCommand(CommandType.FOLLOW, target);
         }
 
-        // ── kill (alias for follow) ───────────────────────────
-        if (body.toLowerCase().startsWith("kill ")) {
+        // ── kill <player> ─────────────────────────────────────
+        if (lower.startsWith("kill ")) {
             String target = body.substring(5).trim();
             if (target.isEmpty()) return null;
-            return new GeminiCommand("#follow player " + target);
+            return new GeminiCommand(CommandType.KILL, target);
         }
 
-        // ── drop all to <player> ──────────────────────────────
-        // "drop all to Steve"
-        if (body.toLowerCase().startsWith("drop all to ")) {
-            String target = body.substring(12).trim();
+        // ── mine <block> ──────────────────────────────────────
+        if (lower.startsWith("mine ")) {
+            String target = body.substring(5).trim();
             if (target.isEmpty()) return null;
-            return new GeminiCommand("all", null, target);
+            return new GeminiCommand(CommandType.MINE, target);
         }
 
-        // ── drop 1 <item> to <player> ─────────────────────────
-        // "drop 1 diamond_sword to Steve"
-        if (body.toLowerCase().startsWith("drop 1 ")) {
-            String rest = body.substring(7).trim(); // "diamond_sword to Steve"
-            int toIdx = rest.toLowerCase().lastIndexOf(" to ");
-            if (toIdx == -1) return null;
-            String item = rest.substring(0, toIdx).trim();
-            String target = rest.substring(toIdx + 4).trim();
-            if (item.isEmpty() || target.isEmpty()) return null;
-            return new GeminiCommand("one", item, target);
+        // ── go to <dest> ──────────────────────────────────────
+        if (lower.startsWith("go to ")) {
+            String dest = body.substring(6).trim();
+            if (dest.isEmpty()) return null;
+            return new GeminiCommand(CommandType.GOTO, dest);
         }
 
-        // ── drop stack <item> to <player> ─────────────────────
-        // "drop stack diamond_sword to Steve"
-        if (body.toLowerCase().startsWith("drop stack ")) {
-            String rest = body.substring(11).trim(); // "diamond_sword to Steve"
-            int toIdx = rest.toLowerCase().lastIndexOf(" to ");
-            if (toIdx == -1) return null;
-            String item = rest.substring(0, toIdx).trim();
-            String target = rest.substring(toIdx + 4).trim();
-            if (item.isEmpty() || target.isEmpty()) return null;
-            return new GeminiCommand("stack", item, target);
+        // ── tower up <n> blocks ───────────────────────────────
+        if (lower.startsWith("tower up ")) {
+            // "tower up 10 blocks" or "tower up 10"
+            String rest = body.substring(9).trim().toLowerCase().replace(" blocks", "").trim();
+            if (rest.isEmpty()) return null;
+            return new GeminiCommand(CommandType.TOWER_UP, rest);
+        }
+
+        // ── walk 1 block / walk off the tower ─────────────────
+        if (lower.startsWith("walk ")) {
+            String rest = body.substring(5).trim();
+            if (rest.isEmpty()) return null;
+            return new GeminiCommand(CommandType.WALK, rest);
         }
 
         return null;
