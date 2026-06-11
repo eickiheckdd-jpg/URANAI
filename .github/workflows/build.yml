@@ -21,8 +21,8 @@ jobs:
           distribution: 'microsoft'
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
-      - name: clean build
-        run: ./gradlew build
+      - name: Clean Gradle
+  run: rm -rf .gradle build
       - name: capture build artifacts
         uses: actions/upload-artifact@v7
         with:
