@@ -43,12 +43,20 @@ public final class GeminiCommandParser {
         if (rawMessage == null) return null;
 
         String clean = rawMessage.replaceAll("§[0-9a-fk-or]", "").trim();
+
+        // Strip "PlayerName: " prefix if present (messages from other players)
+        // e.g. "Steve: hey gemini mine dirt" → "hey gemini mine dirt"
+        int colonIndex = clean.indexOf(": ");
+        if (colonIndex != -1) {
+            clean = clean.substring(colonIndex + 2).trim();
+        }
+
         if (!clean.toLowerCase().startsWith(PREFIX)) return null;
 
-        String body = clean.substring(PREFIX.length()).trim();
+        String body = clean.toLowerCase().substring(PREFIX.length()).trim();
         if (body.isEmpty()) return null;
 
-        String lower = body.toLowerCase();
+        String lower = body;
 
         // ── stop ──────────────────────────────────────────────
         if (lower.equals("stop")) {
