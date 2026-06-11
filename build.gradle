@@ -26,16 +26,21 @@ loom {
 }
 
 dependencies {
-	// To change the versions see the gradle.properties file
-	minecraft "com.mojang:minecraft:${project.minecraft_version}"
-	mappings loom.officialMojangMappings()
-	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    // Minecraft
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
 
-	// Fabric API. This is technically optional, but you probably want it anyway.
-	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
-	
+    // FIX: use Yarn mappings instead of Mojang mappings
+    mappings "net.fabricmc:yarn:${project.minecraft_version}+build.1:v2"
+
+    // Fabric Loader
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+
+    // Fabric API
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+    // Baritone (local jar)
+    modImplementation files("libs/baritone-meteor-1.21.11.jar")
 }
-
 processResources {
 	def version = project.version
 	inputs.property "version", version
