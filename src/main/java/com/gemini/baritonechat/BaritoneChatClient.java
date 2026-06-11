@@ -1,5 +1,11 @@
 package com.gemini.baritonechat;
 
-public class BaritoneChatClient {
-    // Baritone Chat client implementation
+import net.fabricmc.api.ClientModInitializer;
+
+public class BaritoneChatClient implements ClientModInitializer {
+
+    @Override
+    public void onInitializeClient() {
+        System.out.println("[Gemini] Baritone Chat Loaded");
+    }
 }
