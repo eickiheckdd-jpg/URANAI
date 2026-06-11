@@ -6,6 +6,6 @@ public class BaritoneChatClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        ChatListener.register();
+        System.out.println("[BaritoneChat] Loaded");
     }
 }
