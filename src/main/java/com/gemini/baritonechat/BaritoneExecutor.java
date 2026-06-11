@@ -2,13 +2,13 @@ package com.gemini.baritonechat;
 
 import net.minecraft.client.MinecraftClient;
 
-public class BaritoneExecutor {
+public class CommandExecutor {
 
     public static void run(String command) {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        MinecraftClient client = MinecraftClient.getInstance();
 
-        if (mc.player != null) {
-            mc.player.networkHandler.sendChatCommand(command);
+        if (client.player != null) {
+            client.player.networkHandler.sendChatCommand(command);
         }
     }
 }
