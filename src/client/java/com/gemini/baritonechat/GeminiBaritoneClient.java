@@ -263,7 +263,7 @@ public class GeminiBaritoneClient implements ClientModInitializer {
     private static boolean playerOnline(MinecraftClient client, String name) {
         if (client.getNetworkHandler() == null) return false;
         for (PlayerListEntry entry : client.getNetworkHandler().getPlayerList()) {
-            if (entry.getProfile().getName().equalsIgnoreCase(name)) return true;
+            if (entry.getProfile().name().equalsIgnoreCase(name)) return true;
         }
         return false;
     }
