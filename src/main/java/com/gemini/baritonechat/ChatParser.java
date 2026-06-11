@@ -30,6 +30,11 @@ public class ChatParser {
             return "#goto " + args.substring(6).trim();
         }
 
+        // ✅ NEW: STOP COMMAND
+        if (argsLower.startsWith("stop")) {
+            return "#stop";
+        }
+
         return null;
     }
 }
