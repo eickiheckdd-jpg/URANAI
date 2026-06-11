@@ -5,6 +5,7 @@ import java.util.Locale;
 public class ChatParser {
 
     public static String parse(String msg) {
+
         String original = msg.trim();
         String lower = original.toLowerCase(Locale.ROOT);
 
