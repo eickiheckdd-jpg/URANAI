@@ -1,5 +1,10 @@
 package com.gemini;
 
-public class GeminiClient {
-    // Gemini client implementation
+import net.fabricmc.api.ClientModInitializer;
+
+public class GeminiClient implements ClientModInitializer {
+    @Override
+    public void onInitializeClient() {
+        System.out.println("Gemini loaded");
+    }
 }
