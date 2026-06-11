@@ -10,6 +10,7 @@ import net.minecraft.block.Block;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.PlayerListEntry;
 import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.registry.Registries;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
@@ -53,7 +54,8 @@ public class GeminiBaritoneClient implements ClientModInitializer {
         });
 
         // ── Your own outgoing chat ────────────────────────────────────────────
-        ClientSendMessageEvents.CHAT.register(this::handleIncomingInstance);
+        // ClientSendMessageEvents.CHAT listener is void in 1.21.11
+        ClientSendMessageEvents.CHAT.register(message -> handleIncoming(message));
 
         // ── Tick handler — walk only ──────────────────────────────────────────
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -61,22 +63,18 @@ public class GeminiBaritoneClient implements ClientModInitializer {
 
             if (walkActive) {
                 walkTickCounter++;
-                KeyBinding forwardKey = client.options.forwardKey;
+                // setKeyPressed uses InputUtil.Key directly — confirmed in Yarn 1.21.11+build.4
+                InputUtil.Key forwardKey = client.options.forwardKey.getDefaultKey();
                 if (walkTickCounter <= WALK_TICKS) {
-                    KeyBinding.setKeyPressed(forwardKey.getDefaultKey(), true);
+                    KeyBinding.setKeyPressed(forwardKey, true);
                 } else {
-                    KeyBinding.setKeyPressed(forwardKey.getDefaultKey(), false);
+                    KeyBinding.setKeyPressed(forwardKey, false);
                     walkActive      = false;
                     walkTickCounter = 0;
                     if ("walk".equals(activeTask)) activeTask = null;
                 }
             }
         });
-    }
-
-    // Needed to use method reference for ClientSendMessageEvents (void return)
-    private void handleIncomingInstance(String raw) {
-        handleIncoming(raw);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -107,7 +105,7 @@ public class GeminiBaritoneClient implements ClientModInitializer {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // STOP — clears ALL state, cancels walk, conditionally presses K+R
+    // STOP
     // ──────────────────────────────────────────────────────────────────────────
 
     private static void handleStop(MinecraftClient client) {
@@ -118,17 +116,15 @@ public class GeminiBaritoneClient implements ClientModInitializer {
             KeyBinding.setKeyPressed(client.options.forwardKey.getDefaultKey(), false);
         }
 
-        // Send #stop to Baritone first
         sendBaritoneCommand(client, "#stop");
 
-        // Only press K and R if kill mode was active
+        // Only press K then R if kill mode was active
         if (killModeActive) {
-            simulateKeyPress(client, GLFW.GLFW_KEY_K);
-            simulateKeyPress(client, GLFW.GLFW_KEY_R);
+            simulateKeyPress(GLFW.GLFW_KEY_K);
+            simulateKeyPress(GLFW.GLFW_KEY_R);
             killModeActive = false;
         }
 
-        // Always clear all state
         followTarget = null;
         mineTarget   = null;
         activeTask   = null;
@@ -149,7 +145,7 @@ public class GeminiBaritoneClient implements ClientModInitializer {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // KILL — follow + press R then K (ONLY command that may do this)
+    // KILL — follow + press R then K (ONLY command allowed to do this)
     // ──────────────────────────────────────────────────────────────────────────
 
     private static void handleKill(MinecraftClient client, String playerName) {
@@ -161,8 +157,8 @@ public class GeminiBaritoneClient implements ClientModInitializer {
         followTarget   = playerName;
         activeTask     = "kill";
         sendBaritoneCommand(client, "#follow player " + playerName);
-        simulateKeyPress(client, GLFW.GLFW_KEY_R);
-        simulateKeyPress(client, GLFW.GLFW_KEY_K);
+        simulateKeyPress(GLFW.GLFW_KEY_R);
+        simulateKeyPress(GLFW.GLFW_KEY_K);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -179,8 +175,8 @@ public class GeminiBaritoneClient implements ClientModInitializer {
         List<String> matches = new ArrayList<>();
 
         for (Block block : Registries.BLOCK) {
-            Identifier id   = Registries.BLOCK.getId(block);
-            String path     = id.getPath();
+            Identifier id = Registries.BLOCK.getId(block);
+            String path   = id.getPath();
             if (path.contains(lower)
                     && !path.equals("air")
                     && !path.equals("barrier")
@@ -227,7 +223,7 @@ public class GeminiBaritoneClient implements ClientModInitializer {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // WALK — hold W for ~0.7 seconds
+    // WALK — hold W for ~0.7 seconds via tick handler
     // ──────────────────────────────────────────────────────────────────────────
 
     private static void handleWalk(MinecraftClient client, String arg) {
@@ -243,6 +239,7 @@ public class GeminiBaritoneClient implements ClientModInitializer {
     private static void sendBaritoneCommand(MinecraftClient client, String cmd) {
         client.execute(() -> {
             if (client.player != null) {
+                // sendChatMessage confirmed present in ClientPlayNetworkHandler yarn 1.21.11
                 client.player.networkHandler.sendChatMessage(cmd);
                 client.player.sendMessage(Text.literal("§7[Gemini→Baritone] §f" + cmd), false);
             }
@@ -259,26 +256,25 @@ public class GeminiBaritoneClient implements ClientModInitializer {
 
     /**
      * Check tab-list for player — works even outside render distance.
+     * Uses GameProfile.name() — record accessor in 1.21.11 (NOT getName())
      */
     private static boolean playerOnline(MinecraftClient client, String name) {
         if (client.getNetworkHandler() == null) return false;
         for (PlayerListEntry entry : client.getNetworkHandler().getPlayerList()) {
+            // .name() is the correct record accessor in 1.21.11 — NOT .getName()
             if (entry.getProfile().name().equalsIgnoreCase(name)) return true;
         }
         return false;
     }
 
     /**
-     * Simulate a single key press using GLFW key code.
+     * Simulate a key press by GLFW key code.
+     * Uses InputUtil.Type.KEYSYM.createFromCode() to build an InputUtil.Key,
+     * then calls KeyBinding.onKeyPressed() — both confirmed in Yarn 1.21.11+build.4.
      * ONLY called by handleKill and handleStop (when killModeActive).
      */
-    private static void simulateKeyPress(MinecraftClient client, int glfwKey) {
-        for (KeyBinding kb : client.options.allKeys) {
-            if (kb.getDefaultKey().getCode() == glfwKey) {
-                KeyBinding.onKeyPressed(kb.getDefaultKey());
-                return;
-            }
-        }
-        LOGGER.warn("[GeminiBaritone] No keybinding found for GLFW key: {}", glfwKey);
+    private static void simulateKeyPress(int glfwKey) {
+        InputUtil.Key key = InputUtil.Type.KEYSYM.createFromCode(glfwKey);
+        KeyBinding.onKeyPressed(key);
     }
 }
