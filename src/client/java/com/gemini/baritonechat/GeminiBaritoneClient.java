@@ -14,6 +14,7 @@ import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.registry.Registries;
 import net.minecraft.text.Text;
+import net.minecraft.util.Hand;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
@@ -32,13 +33,16 @@ public class GeminiBaritoneClient implements ClientModInitializer {
 
     // ── State flags ───────────────────────────────────────────────────────────
     private static volatile boolean killModeActive  = false;
-    private static volatile String  killTarget      = null; // ONLY aim assist uses this
+    private static volatile String  killTarget      = null;
     private static volatile String  activeTask      = null;
 
     // ── Walk task state ───────────────────────────────────────────────────────
     private static volatile boolean walkActive      = false;
     private static int              walkTickCounter = 0;
     private static final int        WALK_TICKS      = 14;
+
+    // ── Attack cooldown ───────────────────────────────────────────────────────
+    private static int attackCooldownTicks = 0;
 
     @Override
     public void onInitializeClient() {
@@ -74,14 +78,30 @@ public class GeminiBaritoneClient implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.player == null) return;
 
-            // ── Aim assist ────────────────────────────────────────────────────
-            // ONLY active when killModeActive=true AND killTarget is set.
-            // Will NEVER run for follow, mine, goto, walk, or any other command.
-            // Will NEVER target anyone other than killTarget.
+            // ── Aim assist + auto attack (kill mode only) ─────────────────────
+            // ONLY runs when killModeActive=true AND killTarget is set.
+            // NEVER runs for follow, mine, goto, walk, or any other command.
             if (killModeActive && killTarget != null) {
                 AbstractClientPlayerEntity target = findPlayerExact(client, killTarget);
                 if (target != null) {
+                    // Aim assist — lock onto target's eye position every tick
                     aimAt(client, target);
+
+                    // 1.9 combat — attack only at 95% cooldown charge
+                    // getAttackCooldownProgress returns 0.0 to 1.0
+                    // At 95% we get near-full damage without spam
+                    float cooldown = client.player.getAttackCooldownProgress(0f);
+                    if (cooldown >= 0.95f) {
+                        double distSq = client.player.squaredDistanceTo(target);
+                        // Only attack within melee range (4 blocks = 16 squared)
+                        if (distSq <= 16.0) {
+                            client.interactionManager.attackEntity(client.player, target);
+                            client.player.swingHand(Hand.MAIN_HAND);
+                            attackCooldownTicks = 0;
+                        }
+                    } else {
+                        attackCooldownTicks++;
+                    }
                 }
             }
 
@@ -129,7 +149,7 @@ public class GeminiBaritoneClient implements ClientModInitializer {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // STOP — always clears kill mode and aim assist
+    // STOP — always clears kill mode, aim assist, and attack
     // ──────────────────────────────────────────────────────────────────────────
 
     private static void handleStop(MinecraftClient client) {
@@ -146,14 +166,14 @@ public class GeminiBaritoneClient implements ClientModInitializer {
             simulateKeyPress(client, GLFW.GLFW_KEY_R);
         }
 
-        // Always fully clear kill mode and aim assist on stop
-        killModeActive = false;
-        killTarget     = null;
-        activeTask     = null;
+        killModeActive     = false;
+        killTarget         = null;
+        attackCooldownTicks = 0;
+        activeTask         = null;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // FOLLOW — NO aim assist, never touches killMode
+    // FOLLOW — NO aim assist, NO auto attack, never touches killMode
     // ──────────────────────────────────────────────────────────────────────────
 
     private static void handleFollow(MinecraftClient client, String playerName) {
@@ -165,17 +185,15 @@ public class GeminiBaritoneClient implements ClientModInitializer {
             sendFailed(client);
             return;
         }
-        // Follow never enables aim assist — aim assist is KILL only
         activeTask = "follow";
         sendBaritoneCommand(client, "#follow player " + playerName);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // KILL — enables aim assist ONLY for the exact named target
+    // KILL — enables aim assist + auto attack for EXACT named target only
     // ──────────────────────────────────────────────────────────────────────────
 
     private static void handleKill(MinecraftClient client, String playerName) {
-        // No player name = kill mode stays false, aim assist stays off
         if (playerName == null || playerName.isEmpty()) {
             sendFailed(client);
             return;
@@ -185,10 +203,10 @@ public class GeminiBaritoneClient implements ClientModInitializer {
             return;
         }
 
-        // Set kill mode and aim target to EXACTLY this player name — nothing else
-        killModeActive = true;
-        killTarget     = playerName; // aim assist will ONLY track this exact name
-        activeTask     = "kill";
+        killModeActive      = true;
+        killTarget          = playerName;
+        attackCooldownTicks = 0;
+        activeTask          = "kill";
 
         sendBaritoneCommand(client, "#follow player " + playerName);
         simulateKeyPress(client, GLFW.GLFW_KEY_R);
@@ -295,8 +313,8 @@ public class GeminiBaritoneClient implements ClientModInitializer {
     }
 
     /**
-     * Finds a player by EXACT name match (case-insensitive).
-     * Will never return a different player — if name doesn't match exactly, returns null.
+     * Finds a player by EXACT name match only.
+     * Returns null if not found — will never return the wrong player.
      */
     private static AbstractClientPlayerEntity findPlayerExact(MinecraftClient client, String name) {
         if (client.world == null || name == null) return null;
