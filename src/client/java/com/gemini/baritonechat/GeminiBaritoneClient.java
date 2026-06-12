@@ -8,6 +8,7 @@ import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientSendMessageEvents;
 import net.minecraft.block.Block;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.client.network.PlayerListEntry;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
@@ -15,6 +16,7 @@ import net.minecraft.registry.Registries;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Vec3d;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.glfw.GLFWKeyCallbackI;
 import org.slf4j.Logger;
@@ -29,13 +31,14 @@ public class GeminiBaritoneClient implements ClientModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger("gemini-baritone");
 
     // ── State flags ───────────────────────────────────────────────────────────
-    private static volatile boolean killModeActive = false;
-    private static volatile String  activeTask     = null;
+    private static volatile boolean killModeActive  = false;
+    private static volatile String  killTarget      = null; // ONLY aim assist uses this
+    private static volatile String  activeTask      = null;
 
     // ── Walk task state ───────────────────────────────────────────────────────
-    private static volatile boolean walkActive   = false;
-    private static int walkTickCounter           = 0;
-    private static final int WALK_TICKS          = 14;
+    private static volatile boolean walkActive      = false;
+    private static int              walkTickCounter = 0;
+    private static final int        WALK_TICKS      = 14;
 
     @Override
     public void onInitializeClient() {
@@ -70,6 +73,19 @@ public class GeminiBaritoneClient implements ClientModInitializer {
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.player == null) return;
+
+            // ── Aim assist ────────────────────────────────────────────────────
+            // ONLY active when killModeActive=true AND killTarget is set.
+            // Will NEVER run for follow, mine, goto, walk, or any other command.
+            // Will NEVER target anyone other than killTarget.
+            if (killModeActive && killTarget != null) {
+                AbstractClientPlayerEntity target = findPlayerExact(client, killTarget);
+                if (target != null) {
+                    aimAt(client, target);
+                }
+            }
+
+            // ── Walk hold ─────────────────────────────────────────────────────
             if (walkActive) {
                 walkTickCounter++;
                 InputUtil.Key forwardKey = client.options.forwardKey.getDefaultKey();
@@ -113,7 +129,7 @@ public class GeminiBaritoneClient implements ClientModInitializer {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // STOP
+    // STOP — always clears kill mode and aim assist
     // ──────────────────────────────────────────────────────────────────────────
 
     private static void handleStop(MinecraftClient client) {
@@ -128,36 +144,52 @@ public class GeminiBaritoneClient implements ClientModInitializer {
         if (killModeActive) {
             simulateKeyPress(client, GLFW.GLFW_KEY_K);
             simulateKeyPress(client, GLFW.GLFW_KEY_R);
-            killModeActive = false;
         }
 
-        activeTask   = null;
+        // Always fully clear kill mode and aim assist on stop
+        killModeActive = false;
+        killTarget     = null;
+        activeTask     = null;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // FOLLOW
+    // FOLLOW — NO aim assist, never touches killMode
     // ──────────────────────────────────────────────────────────────────────────
 
     private static void handleFollow(MinecraftClient client, String playerName) {
+        if (playerName == null || playerName.isEmpty()) {
+            sendFailed(client);
+            return;
+        }
         if (!playerOnline(client, playerName)) {
             sendFailed(client);
             return;
         }
-        activeTask   = "follow";
+        // Follow never enables aim assist — aim assist is KILL only
+        activeTask = "follow";
         sendBaritoneCommand(client, "#follow player " + playerName);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // KILL
+    // KILL — enables aim assist ONLY for the exact named target
     // ──────────────────────────────────────────────────────────────────────────
 
     private static void handleKill(MinecraftClient client, String playerName) {
+        // No player name = kill mode stays false, aim assist stays off
+        if (playerName == null || playerName.isEmpty()) {
+            sendFailed(client);
+            return;
+        }
         if (!playerOnline(client, playerName)) {
             sendFailed(client);
             return;
         }
+
+        // Set kill mode and aim target to EXACTLY this player name — nothing else
         killModeActive = true;
+        killTarget     = playerName; // aim assist will ONLY track this exact name
         activeTask     = "kill";
+
         sendBaritoneCommand(client, "#follow player " + playerName);
         simulateKeyPress(client, GLFW.GLFW_KEY_R);
         simulateKeyPress(client, GLFW.GLFW_KEY_K);
@@ -263,34 +295,41 @@ public class GeminiBaritoneClient implements ClientModInitializer {
     }
 
     /**
-     * Fires a real GLFW key press + release event on Minecraft's window.
-     *
-     * Hack clients register their toggles via glfwSetKeyCallback or by hooking
-     * Minecraft's KeyboardHandler. Both of those listen for actual GLFW events,
-     * NOT Fabric's KeyBinding.onKeyPressed() — which is why the old method did
-     * nothing visible.
-     *
-     * By invoking the existing GLFW key callback directly with GLFW_PRESS then
-     * GLFW_RELEASE we replicate exactly what happens when the physical key is hit.
+     * Finds a player by EXACT name match (case-insensitive).
+     * Will never return a different player — if name doesn't match exactly, returns null.
      */
+    private static AbstractClientPlayerEntity findPlayerExact(MinecraftClient client, String name) {
+        if (client.world == null || name == null) return null;
+        for (AbstractClientPlayerEntity p : client.world.getPlayers()) {
+            if (p.getName().getString().equalsIgnoreCase(name)) return p;
+        }
+        return null;
+    }
+
+    private static void aimAt(MinecraftClient client, AbstractClientPlayerEntity target) {
+        if (client.player == null) return;
+        Vec3d from  = client.player.getEyePos();
+        Vec3d to    = target.getEyePos();
+        double dx   = to.x - from.x;
+        double dy   = to.y - from.y;
+        double dz   = to.z - from.z;
+        double h    = Math.sqrt(dx * dx + dz * dz);
+        float yaw   = (float)(Math.toDegrees(Math.atan2(dz, dx))) - 90f;
+        float pitch = (float)(-Math.toDegrees(Math.atan2(dy, h)));
+        client.player.setYaw(yaw);
+        client.player.setPitch(pitch);
+    }
+
     private static void simulateKeyPress(MinecraftClient client, int glfwKey) {
         client.execute(() -> {
-            long window = client.getWindow().getHandle();
+            long window  = client.getWindow().getHandle();
             int scancode = GLFW.glfwGetKeyScancode(glfwKey);
-
-            // Get the currently installed key callback and invoke it directly.
-            // This hits every listener that registered via glfwSetKeyCallback,
-            // including hack client keybind systems.
             GLFWKeyCallbackI callback = GLFW.glfwSetKeyCallback(window, null);
             if (callback != null) {
-                // Re-register it immediately so we don't break input
                 GLFW.glfwSetKeyCallback(window, callback);
-                // Fire PRESS then RELEASE — same as a real keypress
                 callback.invoke(window, glfwKey, scancode, GLFW.GLFW_PRESS,   0);
                 callback.invoke(window, glfwKey, scancode, GLFW.GLFW_RELEASE,  0);
             }
-
-            // Also fire Fabric/vanilla path as a fallback
             InputUtil.Key key = InputUtil.Type.KEYSYM.createFromCode(glfwKey);
             KeyBinding.onKeyPressed(key);
         });
