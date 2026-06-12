@@ -12,6 +12,10 @@ import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.client.network.PlayerListEntry;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
+import net.minecraft.component.DataComponentTypes;
+import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
 import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
@@ -25,6 +29,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 @Environment(EnvType.CLIENT)
 public class GeminiBaritoneClient implements ClientModInitializer {
@@ -36,13 +41,40 @@ public class GeminiBaritoneClient implements ClientModInitializer {
     private static volatile String  killTarget      = null;
     private static volatile String  activeTask      = null;
 
-    // ── Walk task state ───────────────────────────────────────────────────────
+    // ── Walk ─────────────────────────────────────────────────────────────────
     private static volatile boolean walkActive      = false;
     private static int              walkTickCounter = 0;
     private static final int        WALK_TICKS      = 14;
 
     // ── Attack cooldown ───────────────────────────────────────────────────────
     private static int attackCooldownTicks = 0;
+
+    // ── Auto eat ─────────────────────────────────────────────────────────────
+    private static volatile boolean autoEatEnabled  = false;
+    private static int              eatCooldown     = 0;
+    private static final int        EAT_TICKS       = 32; // ticks to hold use item
+
+    // Foods excluded from auto eat (valuable / fight foods / side-effect foods)
+    private static final Set<String> EXCLUDED_FOODS = Set.of(
+        "golden_apple", "enchanted_golden_apple",
+        "golden_carrot", "chorus_fruit", "suspicious_stew"
+    );
+
+    // ── Patrol ───────────────────────────────────────────────────────────────
+    private static volatile boolean patrolActive     = false;
+    private static int[][]          patrolWaypoints  = null; // [point][x, z]
+    private static int              patrolIndex      = 0;
+    private static final int        PATROL_THRESHOLD = 4; // blocks squared (2 block radius)
+    private static final int        PATROL_TIMEOUT   = 1200; // 60s at 20tps before #stop
+    private static int              patrolTicksSinceMove = 0;
+
+    // ── Come back ────────────────────────────────────────────────────────────
+    private static BlockPos savedPosition = null;
+
+    // ── Mining with target amount ─────────────────────────────────────────────
+    private static volatile boolean mineCountActive  = false;
+    private static String           mineCountItem    = null; // registry path to check
+    private static int              mineCountTarget  = 0;   // target total in inventory
 
     @Override
     public void onInitializeClient() {
@@ -51,9 +83,7 @@ public class GeminiBaritoneClient implements ClientModInitializer {
         ClientReceiveMessageEvents.CHAT.register(
             (message, signedMessage, sender, params, receptionTimestamp) -> {
                 String raw = null;
-                if (signedMessage != null) {
-                    raw = signedMessage.getSignedContent();
-                }
+                if (signedMessage != null) raw = signedMessage.getSignedContent();
                 if (raw == null || raw.isEmpty()) {
                     raw = message.getString();
                     if (raw.startsWith("<")) {
@@ -73,27 +103,32 @@ public class GeminiBaritoneClient implements ClientModInitializer {
             if (!overlay) handleIncoming(message.getString());
         });
 
-        ClientSendMessageEvents.CHAT.register(message -> handleIncoming(message));
+        ClientSendMessageEvents.CHAT.register(message -> {
+            // Handle special no-prefix commands
+            if (message.equalsIgnoreCase("gemini commands")) {
+                MinecraftClient c = MinecraftClient.getInstance();
+                if (c != null && c.player != null) sendHelp(c);
+                return;
+            }
+            if (message.equalsIgnoreCase("gemini status")) {
+                MinecraftClient c = MinecraftClient.getInstance();
+                if (c != null && c.player != null) sendStatus(c);
+                return;
+            }
+            handleIncoming(message);
+        });
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.player == null) return;
 
-            // ── Aim assist + auto attack (kill mode only) ─────────────────────
-            // ONLY runs when killModeActive=true AND killTarget is set.
-            // NEVER runs for follow, mine, goto, walk, or any other command.
+            // ── Kill mode: aim assist + auto attack ───────────────────────────
             if (killModeActive && killTarget != null) {
                 AbstractClientPlayerEntity target = findPlayerExact(client, killTarget);
                 if (target != null) {
-                    // Aim assist — lock onto target's eye position every tick
                     aimAt(client, target);
-
-                    // 1.9 combat — attack only at 95% cooldown charge
-                    // getAttackCooldownProgress returns 0.0 to 1.0
-                    // At 95% we get near-full damage without spam
                     float cooldown = client.player.getAttackCooldownProgress(0f);
                     if (cooldown >= 0.95f) {
                         double distSq = client.player.squaredDistanceTo(target);
-                        // Only attack within melee range (4 blocks = 16 squared)
                         if (distSq <= 16.0) {
                             client.interactionManager.attackEntity(client.player, target);
                             client.player.swingHand(Hand.MAIN_HAND);
@@ -101,6 +136,26 @@ public class GeminiBaritoneClient implements ClientModInitializer {
                         }
                     } else {
                         attackCooldownTicks++;
+                    }
+                }
+            }
+
+            // ── Auto eat ──────────────────────────────────────────────────────
+            if (autoEatEnabled) {
+                if (eatCooldown > 0) {
+                    eatCooldown--;
+                    // Hold use-item key while eating
+                    KeyBinding.setKeyPressed(client.options.useKey.getDefaultKey(), eatCooldown > 0);
+                } else {
+                    int hunger = client.player.getHungerManager().getFoodLevel();
+                    if (hunger <= 10) { // half bar = 10/20
+                        int slot = findBestFoodSlot(client);
+                        if (slot != -1) {
+                            client.player.getInventory().selectedSlot = slot < 9 ? slot : client.player.getInventory().selectedSlot;
+                            if (slot < 9) client.player.getInventory().selectedSlot = slot;
+                            KeyBinding.setKeyPressed(client.options.useKey.getDefaultKey(), true);
+                            eatCooldown = EAT_TICKS;
+                        }
                     }
                 }
             }
@@ -118,6 +173,46 @@ public class GeminiBaritoneClient implements ClientModInitializer {
                     if ("walk".equals(activeTask)) activeTask = null;
                 }
             }
+
+            // ── Patrol ────────────────────────────────────────────────────────
+            if (patrolActive && patrolWaypoints != null) {
+                int[] wp    = patrolWaypoints[patrolIndex];
+                int   wpX   = wp[0];
+                int   wpZ   = wp[1];
+                BlockPos pos = client.player.getBlockPos();
+                double distSq = Math.pow(pos.getX() - wpX, 2) + Math.pow(pos.getZ() - wpZ, 2);
+
+                if (distSq <= PATROL_THRESHOLD) {
+                    // Reached waypoint — advance to next
+                    patrolIndex = (patrolIndex + 1) % patrolWaypoints.length;
+                    patrolTicksSinceMove = 0;
+                    int[] next = patrolWaypoints[patrolIndex];
+                    int   nextY = client.player.getBlockPos().getY();
+                    sendBaritoneCommand(client, "#goto " + next[0] + " " + nextY + " " + next[1]);
+                } else {
+                    patrolTicksSinceMove++;
+                    if (patrolTicksSinceMove >= PATROL_TIMEOUT) {
+                        // Baritone failed to reach point — stop patrol
+                        patrolActive         = false;
+                        patrolTicksSinceMove = 0;
+                        sendBaritoneCommand(client, "#stop");
+                        client.player.sendMessage(Text.literal("§c[Gemini] Patrol failed to reach waypoint. Stopped."), false);
+                    }
+                }
+            }
+
+            // ── Mine count check ──────────────────────────────────────────────
+            if (mineCountActive && mineCountItem != null) {
+                int current = countItem(client, mineCountItem);
+                if (current >= mineCountTarget) {
+                    mineCountActive = false;
+                    mineCountItem   = null;
+                    mineCountTarget = 0;
+                    activeTask      = null;
+                    sendBaritoneCommand(client, "#stop");
+                    client.player.sendMessage(Text.literal("§a[Gemini] Mining goal reached!"), false);
+                }
+            }
         });
     }
 
@@ -132,15 +227,22 @@ public class GeminiBaritoneClient implements ClientModInitializer {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client == null || client.player == null) return;
 
+        // Save position before any command
+        savedPosition = client.player.getBlockPos();
+
         try {
             switch (cmd.type) {
-                case STOP     -> handleStop(client);
-                case FOLLOW   -> handleFollow(client, cmd.arg1);
-                case KILL     -> handleKill(client, cmd.arg1);
-                case MINE     -> handleMine(client, cmd.arg1);
-                case GOTO     -> handleGoto(client, cmd.arg1);
-                case TOWER_UP -> handleTowerUp(client, cmd.arg1);
-                case WALK     -> handleWalk(client, cmd.arg1);
+                case STOP      -> handleStop(client);
+                case FOLLOW    -> handleFollow(client, cmd.arg1);
+                case KILL      -> handleKill(client, cmd.arg1);
+                case MINE      -> handleMine(client, cmd.arg1, cmd.arg2);
+                case GOTO      -> handleGoto(client, cmd.arg1);
+                case TOWER_UP  -> handleTowerUp(client, cmd.arg1);
+                case WALK      -> handleWalk(client, cmd.arg1);
+                case EAT       -> handleEat(client);
+                case AUTO_EAT  -> handleAutoEat(client);
+                case PATROL    -> handlePatrol(client, cmd.arg1);
+                case COME_BACK -> handleComeBack(client);
             }
         } catch (Exception e) {
             LOGGER.error("[GeminiBaritone] Command failed", e);
@@ -149,7 +251,7 @@ public class GeminiBaritoneClient implements ClientModInitializer {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // STOP — always clears kill mode, aim assist, and attack
+    // STOP
     // ──────────────────────────────────────────────────────────────────────────
 
     private static void handleStop(MinecraftClient client) {
@@ -159,6 +261,15 @@ public class GeminiBaritoneClient implements ClientModInitializer {
             KeyBinding.setKeyPressed(client.options.forwardKey.getDefaultKey(), false);
         }
 
+        autoEatEnabled       = false;
+        eatCooldown          = 0;
+        patrolActive         = false;
+        patrolTicksSinceMove = 0;
+        mineCountActive      = false;
+        mineCountItem        = null;
+        mineCountTarget      = 0;
+        KeyBinding.setKeyPressed(client.options.useKey.getDefaultKey(), false);
+
         sendBaritoneCommand(client, "#stop");
 
         if (killModeActive) {
@@ -166,62 +277,46 @@ public class GeminiBaritoneClient implements ClientModInitializer {
             simulateKeyPress(client, GLFW.GLFW_KEY_R);
         }
 
-        killModeActive     = false;
-        killTarget         = null;
+        killModeActive      = false;
+        killTarget          = null;
         attackCooldownTicks = 0;
-        activeTask         = null;
+        activeTask          = null;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // FOLLOW — NO aim assist, NO auto attack, never touches killMode
+    // FOLLOW
     // ──────────────────────────────────────────────────────────────────────────
 
     private static void handleFollow(MinecraftClient client, String playerName) {
-        if (playerName == null || playerName.isEmpty()) {
-            sendFailed(client);
-            return;
-        }
-        if (!playerOnline(client, playerName)) {
-            sendFailed(client);
-            return;
-        }
+        if (playerName == null || playerName.isEmpty()) { sendFailed(client); return; }
+        if (!playerOnline(client, playerName))          { sendFailed(client); return; }
         activeTask = "follow";
         sendBaritoneCommand(client, "#follow player " + playerName);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // KILL — enables aim assist + auto attack for EXACT named target only
+    // KILL
     // ──────────────────────────────────────────────────────────────────────────
 
     private static void handleKill(MinecraftClient client, String playerName) {
-        if (playerName == null || playerName.isEmpty()) {
-            sendFailed(client);
-            return;
-        }
-        if (!playerOnline(client, playerName)) {
-            sendFailed(client);
-            return;
-        }
-
+        if (playerName == null || playerName.isEmpty()) { sendFailed(client); return; }
+        if (!playerOnline(client, playerName))          { sendFailed(client); return; }
         killModeActive      = true;
         killTarget          = playerName;
         attackCooldownTicks = 0;
         activeTask          = "kill";
-
         sendBaritoneCommand(client, "#follow player " + playerName);
         simulateKeyPress(client, GLFW.GLFW_KEY_R);
         simulateKeyPress(client, GLFW.GLFW_KEY_K);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // MINE
+    // MINE (with optional count)
+    // arg1 = block name, arg2 = optional count string
     // ──────────────────────────────────────────────────────────────────────────
 
-    private static void handleMine(MinecraftClient client, String blockName) {
-        if (client.world == null) {
-            sendFailed(client);
-            return;
-        }
+    private static void handleMine(MinecraftClient client, String blockName, String countStr) {
+        if (client.world == null) { sendFailed(client); return; }
 
         String lower = blockName.toLowerCase().replace(" ", "_");
         List<String> matches = new ArrayList<>();
@@ -230,21 +325,35 @@ public class GeminiBaritoneClient implements ClientModInitializer {
             Identifier id = Registries.BLOCK.getId(block);
             String path   = id.getPath();
             if (path.contains(lower)
-                    && !path.equals("air")
-                    && !path.equals("barrier")
-                    && !path.equals("void_air")
-                    && !path.equals("cave_air")) {
+                    && !path.equals("air") && !path.equals("barrier")
+                    && !path.equals("void_air") && !path.equals("cave_air")) {
                 matches.add(path);
             }
         }
 
-        if (matches.isEmpty()) {
-            sendFailed(client);
-            return;
-        }
+        if (matches.isEmpty()) { sendFailed(client); return; }
 
         String resolved = String.join(" ", matches);
         activeTask = "mine";
+
+        // Handle optional count — "mine diamond 32"
+        if (countStr != null && !countStr.isEmpty()) {
+            try {
+                int amount = Integer.parseInt(countStr.trim());
+                int current = countItem(client, lower);
+                mineCountTarget = current + amount; // mine X MORE on top of what you have
+                mineCountItem   = lower;
+                mineCountActive = true;
+                client.player.sendMessage(
+                    Text.literal("§7[Gemini] Mining until " + mineCountTarget + "x " + lower + " (have " + current + ")"),
+                    false
+                );
+            } catch (NumberFormatException e) {
+                sendFailed(client);
+                return;
+            }
+        }
+
         sendBaritoneCommand(client, "#mine " + resolved);
     }
 
@@ -284,72 +393,59 @@ public class GeminiBaritoneClient implements ClientModInitializer {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Helpers
+    // EAT — manual one-time eat
     // ──────────────────────────────────────────────────────────────────────────
 
-    private static void sendBaritoneCommand(MinecraftClient client, String cmd) {
-        client.execute(() -> {
-            if (client.player != null) {
-                client.player.networkHandler.sendChatMessage(cmd);
-                client.player.sendMessage(Text.literal("§7[Gemini→Baritone] §f" + cmd), false);
-            }
-        });
-    }
-
-    private static void sendFailed(MinecraftClient client) {
-        client.execute(() -> {
-            if (client.player != null) {
-                client.player.sendMessage(Text.literal("Failed."), false);
-            }
-        });
-    }
-
-    private static boolean playerOnline(MinecraftClient client, String name) {
-        if (client.getNetworkHandler() == null) return false;
-        for (PlayerListEntry entry : client.getNetworkHandler().getPlayerList()) {
-            if (entry.getProfile().name().equalsIgnoreCase(name)) return true;
+    private static void handleEat(MinecraftClient client) {
+        int hunger = client.player.getHungerManager().getFoodLevel();
+        if (hunger >= 20) {
+            client.player.sendMessage(Text.literal("§7[Gemini] Not hungry."), false);
+            return;
         }
-        return false;
-    }
-
-    /**
-     * Finds a player by EXACT name match only.
-     * Returns null if not found — will never return the wrong player.
-     */
-    private static AbstractClientPlayerEntity findPlayerExact(MinecraftClient client, String name) {
-        if (client.world == null || name == null) return null;
-        for (AbstractClientPlayerEntity p : client.world.getPlayers()) {
-            if (p.getName().getString().equalsIgnoreCase(name)) return p;
+        int slot = findBestFoodSlot(client);
+        if (slot == -1) {
+            client.player.sendMessage(Text.literal("§c[Gemini] No food in inventory."), false);
+            return;
         }
-        return null;
+        if (slot < 9) client.player.getInventory().selectedSlot = slot;
+        KeyBinding.setKeyPressed(client.options.useKey.getDefaultKey(), true);
+        eatCooldown = EAT_TICKS;
+        // Re-use autoEat tick logic by temporarily enabling eat cooldown
+        // useKey will be released after EAT_TICKS in the auto eat tick block
     }
 
-    private static void aimAt(MinecraftClient client, AbstractClientPlayerEntity target) {
-        if (client.player == null) return;
-        Vec3d from  = client.player.getEyePos();
-        Vec3d to    = target.getEyePos();
-        double dx   = to.x - from.x;
-        double dy   = to.y - from.y;
-        double dz   = to.z - from.z;
-        double h    = Math.sqrt(dx * dx + dz * dz);
-        float yaw   = (float)(Math.toDegrees(Math.atan2(dz, dx))) - 90f;
-        float pitch = (float)(-Math.toDegrees(Math.atan2(dy, h)));
-        client.player.setYaw(yaw);
-        client.player.setPitch(pitch);
+    // ──────────────────────────────────────────────────────────────────────────
+    // AUTO EAT — toggle
+    // ──────────────────────────────────────────────────────────────────────────
+
+    private static void handleAutoEat(MinecraftClient client) {
+        autoEatEnabled = !autoEatEnabled;
+        client.player.sendMessage(
+            Text.literal("§7[Gemini] Auto eat " + (autoEatEnabled ? "§aON" : "§cOFF")),
+            false
+        );
     }
 
-    private static void simulateKeyPress(MinecraftClient client, int glfwKey) {
-        client.execute(() -> {
-            long window  = client.getWindow().getHandle();
-            int scancode = GLFW.glfwGetKeyScancode(glfwKey);
-            GLFWKeyCallbackI callback = GLFW.glfwSetKeyCallback(window, null);
-            if (callback != null) {
-                GLFW.glfwSetKeyCallback(window, callback);
-                callback.invoke(window, glfwKey, scancode, GLFW.GLFW_PRESS,   0);
-                callback.invoke(window, glfwKey, scancode, GLFW.GLFW_RELEASE,  0);
-            }
-            InputUtil.Key key = InputUtil.Type.KEYSYM.createFromCode(glfwKey);
-            KeyBinding.onKeyPressed(key);
-        });
-    }
-}
+    // ──────────────────────────────────────────────────────────────────────────
+    // PATROL — 3 waypoints, X and Z only, Y = current at time of each goto
+    // arg1 = "x1 z1 x2 z2 x3 z3" or "x1 z1 y1 x2 z2 y2 x3 z3 y3"
+    // ──────────────────────────────────────────────────────────────────────────
+
+    private static void handlePatrol(MinecraftClient client, String arg) {
+        if (arg == null || arg.isEmpty()) { sendFailed(client); return; }
+
+        String[] parts = arg.trim().split("\\s+");
+        int[][] waypoints;
+
+        try {
+            if (parts.length == 6) {
+                // X Z X Z X Z
+                waypoints = new int[][] {
+                    { Integer.parseInt(parts[0]), Integer.parseInt(parts[1]) },
+                    { Integer.parseInt(parts[2]), Integer.parseInt(parts[3]) },
+                    { Integer.parseInt(parts[4]), Integer.parseInt(parts[5]) }
+                };
+            } else if (parts.length == 9) {
+                // X Z Y X Z Y X Z Y — Y ignored, we use current Y at each step
+                waypoints = new int[][] {
+                    { Integer.parseInt(parts[0]), Integer.parseInt(parts[1]) },
