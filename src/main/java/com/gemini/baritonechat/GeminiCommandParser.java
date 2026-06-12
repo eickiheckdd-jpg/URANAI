@@ -11,7 +11,7 @@ public final class GeminiCommandParser {
 
     private GeminiCommandParser() {}
 
-    public enum CommandType { STOP, FOLLOW, KILL, MINE, GOTO, TOWER_UP, WALK, EAT, AUTO_EAT, PATROL, COME_BACK }
+    public enum CommandType { STOP, FOLLOW, KILL, MINE, GOTO, TOWER_UP, WALK }
 
     public static class GeminiCommand {
         public final CommandType type;
@@ -23,28 +23,26 @@ public final class GeminiCommandParser {
     }
 
     private static final String[][] VERB_ALIASES = {
-        { "stop",      "stop"      }, { "halt",     "stop"      }, { "cancel",   "stop"      },
-        { "quit",      "stop"      }, { "abort",    "stop"      }, { "pause",    "stop"      },
-        { "freeze",    "stop"      }, { "end",      "stop"      },
-        { "follow",    "follow"    }, { "fallow",   "follow"    }, { "folow",    "follow"    },
-        { "track",     "follow"    }, { "stalk",    "follow"    }, { "chase",    "follow"    },
-        { "shadow",    "follow"    },
-        { "kill",      "kill"      }, { "attack",   "kill"      }, { "fight",    "kill"      },
-        { "hit",       "kill"      }, { "murder",   "kill"      }, { "slay",     "kill"      },
-        { "pvp",       "kill"      }, { "kil",      "kill"      }, { "kll",      "kill"      },
-        { "atack",     "kill"      }, { "attck",    "kill"      },
-        { "mine",      "mine"      }, { "dig",      "mine"      }, { "collect",  "mine"      },
-        { "farm",      "mine"      }, { "gather",   "mine"      }, { "mne",      "mine"      },
-        { "mien",      "mine"      }, { "grind",    "mine"      }, { "harvest",  "mine"      },
-        { "goto",      "goto"      }, { "go",       "goto"      }, { "travel",   "goto"      },
-        { "move",      "goto"      }, { "head",     "goto"      }, { "navigate", "goto"      },
-        { "teleport",  "goto"      }, { "tp",       "goto"      }, { "warp",     "goto"      },
-        { "tower",     "tower"     }, { "build",    "tower"     }, { "climb",    "tower"     },
-        { "pillar",    "tower"     }, { "towerup",  "tower"     },
-        { "walk",      "walk"      }, { "nudge",    "walk"      }, { "step",     "walk"      },
-        { "forward",   "walk"      },
-        { "eat",       "eat"       }, { "food",     "eat"       }, { "consume",  "eat"       },
-        { "patrol",    "patrol"    }, { "loop",     "patrol"    }, { "circle",   "patrol"    },
+        { "stop",      "stop"   }, { "halt",     "stop"   }, { "cancel",   "stop"   },
+        { "quit",      "stop"   }, { "abort",    "stop"   }, { "pause",    "stop"   },
+        { "freeze",    "stop"   }, { "end",      "stop"   },
+        { "follow",    "follow" }, { "fallow",   "follow" }, { "folow",    "follow" },
+        { "track",     "follow" }, { "stalk",    "follow" }, { "chase",    "follow" },
+        { "shadow",    "follow" },
+        { "kill",      "kill"   }, { "attack",   "kill"   }, { "fight",    "kill"   },
+        { "hit",       "kill"   }, { "murder",   "kill"   }, { "slay",     "kill"   },
+        { "pvp",       "kill"   }, { "kil",      "kill"   }, { "kll",      "kill"   },
+        { "atack",     "kill"   }, { "attck",    "kill"   },
+        { "mine",      "mine"   }, { "dig",      "mine"   }, { "collect",  "mine"   },
+        { "farm",      "mine"   }, { "gather",   "mine"   }, { "mne",      "mine"   },
+        { "mien",      "mine"   }, { "grind",    "mine"   }, { "harvest",  "mine"   },
+        { "goto",      "goto"   }, { "go",       "goto"   }, { "travel",   "goto"   },
+        { "move",      "goto"   }, { "head",     "goto"   }, { "navigate", "goto"   },
+        { "teleport",  "goto"   }, { "tp",       "goto"   }, { "warp",     "goto"   },
+        { "tower",     "tower"  }, { "build",    "tower"  }, { "climb",    "tower"  },
+        { "pillar",    "tower"  }, { "towerup",  "tower"  },
+        { "walk",      "walk"   }, { "nudge",    "walk"   }, { "step",     "walk"   },
+        { "forward",   "walk"   },
     };
 
     private static final String[] TOWER_WORDS = {
@@ -71,17 +69,9 @@ public final class GeminiCommandParser {
         if (body.isEmpty()) return null;
         String lower = body.toLowerCase();
 
-        // ── come back ─────────────────────────────────────────────────────────
-        if (lower.equals("come back") || lower.equals("go back") || lower.equals("return")) {
-            return new GeminiCommand(CommandType.COME_BACK);
-        }
-
-        // ── auto eat ──────────────────────────────────────────────────────────
-        if (lower.equals("auto eat") || lower.equals("autofeed") || lower.equals("auto feed")) {
-            return new GeminiCommand(CommandType.AUTO_EAT);
-        }
-
-        String[] words = lower.split("\\s+");
+        String[] words   = lower.split("\\s+");
+        int spaceIdx     = lower.indexOf(' ');
+        String firstVerb = spaceIdx == -1 ? lower : lower.substring(0, spaceIdx);
 
         boolean hasTowerKeyword = false;
         boolean hasUp = false;
@@ -91,9 +81,6 @@ public final class GeminiCommandParser {
                 if (w.equals(tw) || levenshtein(w, tw) <= 1) hasTowerKeyword = true;
             }
         }
-
-        int spaceIdx     = lower.indexOf(' ');
-        String firstVerb = spaceIdx == -1 ? lower : lower.substring(0, spaceIdx);
         if ("tower".equals(resolveVerb(firstVerb))) hasTowerKeyword = true;
 
         boolean isGoUp = false;
@@ -115,31 +102,25 @@ public final class GeminiCommandParser {
         if (canonical == null) return null;
 
         if (canonical.equals("goto") && restLow.startsWith("to ")) {
-            rest    = rest.substring(3).trim();
-            restLow = rest.toLowerCase();
+            rest = rest.substring(3).trim();
         }
 
         return switch (canonical) {
-            case "stop"    -> new GeminiCommand(CommandType.STOP);
-            case "follow"  -> rest.isEmpty() ? null : new GeminiCommand(CommandType.FOLLOW, rest);
-            case "kill"    -> rest.isEmpty() ? null : new GeminiCommand(CommandType.KILL, rest);
-            case "goto"    -> rest.isEmpty() ? null : new GeminiCommand(CommandType.GOTO, rest);
-            case "walk"    -> new GeminiCommand(CommandType.WALK, rest.isEmpty() ? "1" : rest);
-            case "eat"     -> new GeminiCommand(CommandType.EAT);
-            case "patrol"  -> rest.isEmpty() ? null : new GeminiCommand(CommandType.PATROL, rest);
-            case "mine"    -> {
+            case "stop"   -> new GeminiCommand(CommandType.STOP);
+            case "follow" -> rest.isEmpty() ? null : new GeminiCommand(CommandType.FOLLOW, rest);
+            case "kill"   -> rest.isEmpty() ? null : new GeminiCommand(CommandType.KILL, rest);
+            case "goto"   -> rest.isEmpty() ? null : new GeminiCommand(CommandType.GOTO, rest);
+            case "walk"   -> new GeminiCommand(CommandType.WALK, rest.isEmpty() ? "1" : rest);
+            case "mine"   -> {
                 if (rest.isEmpty()) yield null;
-                // Check for optional count at end: "mine diamond 32"
-                String[] mineParts = rest.split("\\s+");
-                if (mineParts.length >= 2) {
-                    String lastPart = mineParts[mineParts.length - 1];
+                String[] parts = rest.split("\\s+");
+                if (parts.length >= 2) {
+                    String last = parts[parts.length - 1];
                     try {
-                        int count = Integer.parseInt(lastPart);
-                        // Last word is a number — block name is everything before it
-                        String blockName = rest.substring(0, rest.lastIndexOf(lastPart)).trim();
+                        int count = Integer.parseInt(last);
+                        String blockName = rest.substring(0, rest.lastIndexOf(last)).trim();
                         yield new GeminiCommand(CommandType.MINE, normaliseBlock(blockName), String.valueOf(count));
                     } catch (NumberFormatException e) {
-                        // No count — normal mine
                         yield new GeminiCommand(CommandType.MINE, normaliseBlock(rest));
                     }
                 }
