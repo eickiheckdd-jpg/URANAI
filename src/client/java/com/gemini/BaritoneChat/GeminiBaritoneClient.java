@@ -91,7 +91,7 @@ public class GeminiBaritoneClient implements ClientModInitializer {
 
             if (walkActive) {
                 walkTickCounter++;
-                InputUtil.Key forwardKey = client.options.forwardKey.getBoundKey();
+                InputUtil.Key forwardKey = client.options.forwardKey.getDefaultKey();
                 if (walkTickCounter <= walkTargetTicks) {
                     KeyBinding.setKeyPressed(forwardKey, true);
                 } else {
@@ -135,7 +135,7 @@ public class GeminiBaritoneClient implements ClientModInitializer {
             walkActive      = false;
             walkTickCounter = 0;
             walkTargetTicks = 0;
-            KeyBinding.setKeyPressed(client.options.forwardKey.getBoundKey(), false);
+            KeyBinding.setKeyPressed(client.options.forwardKey.getDefaultKey(), false);
         }
         sendBaritoneCommand(client, "#stop");
         if (killModeActive) {
@@ -224,7 +224,7 @@ public class GeminiBaritoneClient implements ClientModInitializer {
         if (!playerOnline(client, playerName))          { sendFailed(client); return; }
         client.execute(() -> {
             if (client.player != null) {
-                client.player.networkHandler.sendCommand("tpa " + playerName);
+                client.player.networkHandler.sendChatMessage("/tpa " + playerName);
                 client.player.sendMessage(
                     Text.literal("§7[Gemini] §f/tpa " + playerName),
                     false
@@ -236,7 +236,7 @@ public class GeminiBaritoneClient implements ClientModInitializer {
     private static void handleTpAccept(MinecraftClient client) {
         client.execute(() -> {
             if (client.player != null) {
-                client.player.networkHandler.sendCommand("tpaccept");
+                client.player.networkHandler.sendChatMessage("/tpaccept");
                 client.player.sendMessage(
                     Text.literal("§7[Gemini] §f/tpaccept"),
                     false
@@ -265,7 +265,7 @@ public class GeminiBaritoneClient implements ClientModInitializer {
     private static boolean playerOnline(MinecraftClient client, String name) {
         if (client.getNetworkHandler() == null) return false;
         for (PlayerListEntry entry : client.getNetworkHandler().getPlayerList()) {
-            if (entry.getProfile().getName().equalsIgnoreCase(name)) return true;
+            if (entry.getProfile().name().equalsIgnoreCase(name)) return true;
         }
         return false;
     }
