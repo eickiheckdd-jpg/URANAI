@@ -6,20 +6,18 @@ import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientSendMessageEvents;
-import net.minecraft.block.Block;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.AbstractClientPlayerEntity;
-import net.minecraft.client.network.PlayerListEntry;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
-import net.minecraft.text.Text;
-import net.minecraft.util.Hand;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.class_1268;
+import net.minecraft.class_2248;
+import net.minecraft.class_2338;
+import net.minecraft.class_243;
+import net.minecraft.class_2561;
+import net.minecraft.class_2960;
+import net.minecraft.class_304;
+import net.minecraft.class_310;
+import net.minecraft.class_3675;
+import net.minecraft.class_640;
+import net.minecraft.class_742;
+import net.minecraft.class_7923;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.glfw.GLFWKeyCallbackI;
 import org.slf4j.Logger;
@@ -39,20 +37,10 @@ public class GeminiBaritoneClient implements ClientModInitializer {
 
     private static volatile boolean walkActive      = false;
     private static int              walkTickCounter = 0;
-    private static final int        WALK_TICKS      = 14;
+    private static int              walkTargetTicks = 0;
+    private static final double     TICKS_PER_BLOCK = 4.634;
 
     private static int attackCooldownTicks = 0;
-
-    private static volatile boolean mineCountActive = false;
-    private static String           mineCountItem   = null;
-    private static int              mineCountTarget = 0;
-
-    // Drop task state
-    private static volatile boolean dropTaskActive  = false;
-    private static volatile boolean dropAll         = false;
-    private static volatile int     dropAmount      = 0;
-    private static volatile String  dropItem        = null;
-    private static volatile String  dropTarget      = null;
 
     @Override
     public void onInitializeClient() {
@@ -61,64 +49,43 @@ public class GeminiBaritoneClient implements ClientModInitializer {
         ClientReceiveMessageEvents.CHAT.register(
             (message, signedMessage, sender, params, receptionTimestamp) -> {
                 String raw = null;
-                String senderName = null;
-
-                if (signedMessage != null) raw = signedMessage.getSignedContent();
-                if (sender != null) senderName = sender.name();
-
+                if (signedMessage != null) {
+                    raw = signedMessage.method_44862();
+                }
                 if (raw == null || raw.isEmpty()) {
                     raw = message.getString();
                     if (raw.startsWith("<")) {
                         int close = raw.indexOf("> ");
-                        if (close != -1) {
-                            senderName = raw.substring(1, close);
-                            raw = raw.substring(close + 2).trim();
-                        }
+                        if (close != -1) raw = raw.substring(close + 2).trim();
                     } else {
                         int colon = raw.indexOf(": ");
-                        if (colon != -1 && colon < 32) {
-                            senderName = raw.substring(0, colon);
-                            raw = raw.substring(colon + 2).trim();
-                        }
+                        if (colon != -1 && colon < 32) raw = raw.substring(colon + 2).trim();
                     }
                 }
-
-                LOGGER.info("[GeminiBaritone] CHAT sender='{}' raw='{}'", senderName, raw);
-                handleIncoming(raw, senderName);
+                LOGGER.info("[GeminiBaritone] CHAT raw='{}'", raw);
+                handleIncoming(raw);
             }
         );
 
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
-            if (!overlay) handleIncoming(message.getString(), null);
+            if (!overlay) handleIncoming(message.getString());
         });
 
-        ClientSendMessageEvents.CHAT.register(message -> {
-            if (message.equalsIgnoreCase("gemini commands")) {
-                MinecraftClient c = MinecraftClient.getInstance();
-                if (c != null && c.player != null) sendHelp(c);
-                return;
-            }
-            if (message.equalsIgnoreCase("gemini status")) {
-                MinecraftClient c = MinecraftClient.getInstance();
-                if (c != null && c.player != null) sendStatus(c);
-                return;
-            }
-            handleIncoming(message, null);
-        });
+        ClientSendMessageEvents.CHAT.register(message -> handleIncoming(message));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            if (client.player == null) return;
+            if (client.field_1724 == null) return;
 
             if (killModeActive && killTarget != null) {
-                AbstractClientPlayerEntity target = findPlayerExact(client, killTarget);
+                class_742 target = findPlayerExact(client, killTarget);
                 if (target != null) {
                     aimAt(client, target);
-                    float cooldown = client.player.getAttackCooldownProgress(0f);
+                    float cooldown = client.field_1724.method_7261(0f);
                     if (cooldown >= 0.95f) {
-                        double distSq = client.player.squaredDistanceTo(target);
+                        double distSq = client.field_1724.method_5858(target);
                         if (distSq <= 16.0) {
-                            client.interactionManager.attackEntity(client.player, target);
-                            client.player.swingHand(Hand.MAIN_HAND);
+                            client.field_1761.method_2918(client.field_1724, target);
+                            client.field_1724.method_6104(class_1268.field_5808);
                             attackCooldownTicks = 0;
                         }
                     } else {
@@ -129,72 +96,38 @@ public class GeminiBaritoneClient implements ClientModInitializer {
 
             if (walkActive) {
                 walkTickCounter++;
-                InputUtil.Key forwardKey = client.options.forwardKey.getDefaultKey();
-                if (walkTickCounter <= WALK_TICKS) {
-                    KeyBinding.setKeyPressed(forwardKey, true);
+                class_3675.class_306 forwardKey = client.field_1690.field_1894.method_1429();
+                if (walkTickCounter <= walkTargetTicks) {
+                    class_304.method_1416(forwardKey, true);
                 } else {
-                    KeyBinding.setKeyPressed(forwardKey, false);
+                    class_304.method_1416(forwardKey, false);
                     walkActive      = false;
                     walkTickCounter = 0;
+                    walkTargetTicks = 0;
                     if ("walk".equals(activeTask)) activeTask = null;
-                }
-            }
-
-            if (mineCountActive && mineCountItem != null) {
-                int current = countItem(client, mineCountItem);
-                if (current >= mineCountTarget) {
-                    mineCountActive = false;
-                    mineCountItem   = null;
-                    mineCountTarget = 0;
-                    activeTask      = null;
-                    sendBaritoneCommand(client, "#stop");
-                    client.player.sendMessage(Text.literal("§a[Gemini] Mining goal reached!"), false);
-                }
-            }
-
-            // Drop task — aim at target, drop when within 3 blocks
-            if (dropTaskActive && dropTarget != null) {
-                AbstractClientPlayerEntity target = findPlayerExact(client, dropTarget);
-                if (target != null) {
-                    aimAt(client, target);
-                    double distSq = client.player.squaredDistanceTo(target);
-                    if (distSq <= 9.0) {
-                        executeDrop(client);
-                        sendBaritoneCommand(client, "#stop");
-                        dropTaskActive = false;
-                        dropTarget     = null;
-                        dropItem       = null;
-                    }
-                } else {
-                    // Target left or not found — cancel
-                    dropTaskActive = false;
-                    dropTarget     = null;
-                    client.player.sendMessage(Text.literal("Failed."), false);
                 }
             }
         });
     }
 
-    private static void handleIncoming(String raw, String senderName) {
-        GeminiCommandParser.GeminiCommand cmd = GeminiCommandParser.parse(raw, senderName);
+    private static void handleIncoming(String raw) {
+        GeminiCommandParser.GeminiCommand cmd = GeminiCommandParser.parse(raw);
         if (cmd == null) return;
 
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client == null || client.player == null) return;
+        class_310 client = class_310.method_1551();
+        if (client == null || client.field_1724 == null) return;
 
         try {
             switch (cmd.type) {
-                case STOP        -> handleStop(client);
-                case FOLLOW      -> handleFollow(client, cmd.arg1);
-                case KILL        -> handleKill(client, cmd.arg1);
-                case MINE        -> handleMine(client, cmd.arg1, cmd.arg2);
-                case GOTO        -> handleGoto(client, cmd.arg1);
-                case TOWER_UP    -> handleTowerUp(client, cmd.arg1);
-                case WALK        -> handleWalk(client, cmd.arg1);
-                case COORDS      -> handleCoords(client);
-                case HEALTH      -> handleHealth(client);
-                case DROP_ALL    -> handleDropAll(client, cmd.arg1);
-                case DROP_AMOUNT -> handleDropAmount(client, cmd.arg1, cmd.arg2, cmd.arg3);
+                case STOP      -> handleStop(client);
+                case FOLLOW    -> handleFollow(client, cmd.arg1);
+                case KILL      -> handleKill(client, cmd.arg1);
+                case MINE      -> handleMine(client, cmd.arg1);
+                case GOTO      -> handleGoto(client, cmd.arg1);
+                case TOWER_UP  -> handleTowerUp(client, cmd.arg1);
+                case WALK      -> handleWalk(client, cmd.arg1);
+                case TPA       -> handleTpa(client, cmd.arg1);
+                case TPACCEPT  -> handleTpAccept(client);
             }
         } catch (Exception e) {
             LOGGER.error("[GeminiBaritone] Command failed", e);
@@ -202,41 +135,32 @@ public class GeminiBaritoneClient implements ClientModInitializer {
         }
     }
 
-    private static void handleStop(MinecraftClient client) {
+    private static void handleStop(class_310 client) {
         if (walkActive) {
             walkActive      = false;
             walkTickCounter = 0;
-            KeyBinding.setKeyPressed(client.options.forwardKey.getDefaultKey(), false);
+            walkTargetTicks = 0;
+            class_304.method_1416(client.field_1690.field_1894.method_1429(), false);
         }
-
-        mineCountActive = false;
-        mineCountItem   = null;
-        mineCountTarget = 0;
-        dropTaskActive  = false;
-        dropTarget      = null;
-        dropItem        = null;
-
         sendBaritoneCommand(client, "#stop");
-
         if (killModeActive) {
             simulateKeyPress(client, GLFW.GLFW_KEY_K);
             simulateKeyPress(client, GLFW.GLFW_KEY_R);
         }
-
         killModeActive      = false;
         killTarget          = null;
         attackCooldownTicks = 0;
         activeTask          = null;
     }
 
-    private static void handleFollow(MinecraftClient client, String playerName) {
+    private static void handleFollow(class_310 client, String playerName) {
         if (playerName == null || playerName.isEmpty()) { sendFailed(client); return; }
         if (!playerOnline(client, playerName))          { sendFailed(client); return; }
         activeTask = "follow";
         sendBaritoneCommand(client, "#follow player " + playerName);
     }
 
-    private static void handleKill(MinecraftClient client, String playerName) {
+    private static void handleKill(class_310 client, String playerName) {
         if (playerName == null || playerName.isEmpty()) { sendFailed(client); return; }
         if (!playerOnline(client, playerName))          { sendFailed(client); return; }
         killModeActive      = true;
@@ -248,255 +172,132 @@ public class GeminiBaritoneClient implements ClientModInitializer {
         simulateKeyPress(client, GLFW.GLFW_KEY_K);
     }
 
-    private static void handleMine(MinecraftClient client, String blockName, String countStr) {
-        if (client.world == null) { sendFailed(client); return; }
+    private static void handleMine(class_310 client, String blockName) {
+        if (client.field_1687 == null) { sendFailed(client); return; }
 
         String lower = blockName.toLowerCase().replace(" ", "_");
+        List<String> matches = new ArrayList<>();
 
-        // Check block alias map first
-        String aliasResolved = GeminiCommandParser.resolveBlock(blockName);
-        String resolved;
-
-        if (aliasResolved != null) {
-            resolved = aliasResolved;
-        } else {
-            List<String> matches = new ArrayList<>();
-            for (Block block : Registries.BLOCK) {
-                Identifier id = Registries.BLOCK.getId(block);
-                String path   = id.getPath();
-                if (path.contains(lower)
-                        && !path.equals("air") && !path.equals("barrier")
-                        && !path.equals("void_air") && !path.equals("cave_air")) {
-                    matches.add(path);
-                }
+        for (class_2248 block : class_7923.field_41175) {
+            class_2960 id = class_7923.field_41175.method_10221(block);
+            String path   = id.method_12832();
+            if (path.contains(lower)
+                    && !path.equals("air") && !path.equals("barrier")
+                    && !path.equals("void_air") && !path.equals("cave_air")) {
+                matches.add(path);
             }
-            if (matches.isEmpty()) { sendFailed(client); return; }
-            resolved = String.join(" ", matches);
         }
+
+        if (matches.isEmpty()) { sendFailed(client); return; }
 
         activeTask = "mine";
-
-        if (countStr != null && !countStr.isEmpty()) {
-            try {
-                int amount  = Integer.parseInt(countStr.trim());
-                int current = countItem(client, lower);
-                mineCountTarget = current + amount;
-                mineCountItem   = lower;
-                mineCountActive = true;
-                client.player.sendMessage(
-                    Text.literal("§7[Gemini] Mining until " + mineCountTarget + "x " + lower + " (have " + current + ")"),
-                    false
-                );
-            } catch (NumberFormatException e) {
-                sendFailed(client);
-                return;
-            }
-        }
-
-        sendBaritoneCommand(client, "#mine " + resolved);
+        sendBaritoneCommand(client, "#mine " + String.join(" ", matches));
     }
 
-    private static void handleGoto(MinecraftClient client, String dest) {
+    private static void handleGoto(class_310 client, String dest) {
         activeTask = "goto";
         sendBaritoneCommand(client, "#goto " + dest);
     }
 
-    private static void handleTowerUp(MinecraftClient client, String amountStr) {
+    private static void handleTowerUp(class_310 client, String amountStr) {
         try {
-            int amount   = Integer.parseInt(amountStr.trim());
-            BlockPos pos = client.player.getBlockPos();
-            activeTask   = "tower";
-            sendBaritoneCommand(client, "#goto " + pos.getX() + " " + (pos.getY() + amount) + " " + pos.getZ());
+            int amount     = Integer.parseInt(amountStr.trim());
+            class_2338 pos = client.field_1724.method_24515();
+            int targetY    = pos.method_10264() + amount;
+            activeTask     = "tower";
+            sendBaritoneCommand(client, "#goto " + pos.method_10263() + " " + targetY + " " + pos.method_10260());
         } catch (NumberFormatException e) {
             sendFailed(client);
         }
     }
 
-    private static void handleWalk(MinecraftClient client, String arg) {
+    private static void handleWalk(class_310 client, String arg) {
+        int blocks = 1;
+        if (arg != null && !arg.isEmpty()) {
+            try {
+                blocks = Integer.parseInt(arg.trim().split("\\s+")[0]);
+            } catch (NumberFormatException ignored) {}
+        }
+        walkTargetTicks = (int) Math.round(blocks * TICKS_PER_BLOCK);
         walkActive      = true;
         walkTickCounter = 0;
         activeTask      = "walk";
     }
 
-    private static void handleCoords(MinecraftClient client) {
-        BlockPos pos = client.player.getBlockPos();
-        client.player.networkHandler.sendChatMessage(
-            "Coords: " + pos.getX() + " " + pos.getY() + " " + pos.getZ()
-        );
-    }
-
-    private static void handleHealth(MinecraftClient client) {
-        int hp     = (int) client.player.getHealth();
-        int maxHp  = (int) client.player.getMaxHealth();
-        int hunger = client.player.getHungerManager().getFoodLevel();
-        client.player.networkHandler.sendChatMessage(
-            "Health: " + hp + "/" + maxHp + " | Hunger: " + hunger + "/20"
-        );
-    }
-
-    private static void handleDropAll(MinecraftClient client, String targetName) {
-        if (targetName == null || targetName.isEmpty()) {
-            // No target — drop at own feet
-            dropAllItems(client);
-            return;
-        }
-        if (!playerOnline(client, targetName)) { sendFailed(client); return; }
-        dropAll        = true;
-        dropItem       = null;
-        dropAmount     = 0;
-        dropTarget     = targetName;
-        dropTaskActive = true;
-        activeTask     = "drop";
-        sendBaritoneCommand(client, "#follow player " + targetName);
-    }
-
-    private static void handleDropAmount(MinecraftClient client, String countStr, String itemName, String targetName) {
-        if (countStr == null || itemName == null) { sendFailed(client); return; }
-        try {
-            int count = Integer.parseInt(countStr.trim());
-            if (targetName == null || targetName.isEmpty()) {
-                // No target — drop at own feet
-                dropAmountItems(client, itemName, count);
-                return;
-            }
-            if (!playerOnline(client, targetName)) { sendFailed(client); return; }
-            dropAll        = false;
-            dropAmount     = count;
-            dropItem       = itemName;
-            dropTarget     = targetName;
-            dropTaskActive = true;
-            activeTask     = "drop";
-            sendBaritoneCommand(client, "#follow player " + targetName);
-        } catch (NumberFormatException e) {
-            sendFailed(client);
-        }
-    }
-
-    private static void executeDrop(MinecraftClient client) {
-        if (dropAll) {
-            dropAllItems(client);
-        } else {
-            dropAmountItems(client, dropItem, dropAmount);
-        }
-    }
-
-    private static void dropAllItems(MinecraftClient client) {
-        PlayerInventory inv = client.player.getInventory();
-        for (int i = 0; i < inv.size(); i++) {
-            ItemStack stack = inv.getStack(i);
-            if (!stack.isEmpty()) {
-                client.player.dropItem(stack, true);
-                inv.setStack(i, ItemStack.EMPTY);
-            }
-        }
-    }
-
-    private static void dropAmountItems(MinecraftClient client, String itemName, int amount) {
-        if (itemName == null) return;
-        PlayerInventory inv = client.player.getInventory();
-        int remaining = amount;
-        for (int i = 0; i < inv.size() && remaining > 0; i++) {
-            ItemStack stack = inv.getStack(i);
-            if (stack.isEmpty()) continue;
-            String id = Registries.ITEM.getId(stack.getItem()).getPath();
-            if (!id.contains(itemName.toLowerCase().replace(" ", "_"))) continue;
-            int toDrop = Math.min(remaining, stack.getCount());
-            client.player.dropItem(stack.split(toDrop), false);
-            remaining -= toDrop;
-        }
-    }
-
-    private static void sendHelp(MinecraftClient client) {
-        String[] lines = {
-            "=== Gemini Commands ===",
-            "hey gemini follow <player>",
-            "hey gemini kill <player>",
-            "hey gemini mine <block> [amount]",
-            "hey gemini go to <x y z>",
-            "hey gemini tower up <n>",
-            "hey gemini walk",
-            "hey gemini drop all [to <player>]",
-            "hey gemini drop <n> <item> [to <player>]",
-            "hey gemini health",
-            "hey gemini coords",
-            "hey gemini stop",
-            "gemini status"
-        };
-        for (String line : lines) {
-            client.player.networkHandler.sendChatMessage(line);
-        }
-    }
-
-    private static void sendStatus(MinecraftClient client) {
-        String task  = activeTask != null ? activeTask : "none";
-        String kill  = killModeActive ? "ON -> " + killTarget : "OFF";
-        String mine  = mineCountActive ? mineCountItem + " -> " + mineCountTarget : "OFF";
-        String drop  = dropTaskActive ? "dropping to " + dropTarget : "OFF";
-        client.player.networkHandler.sendChatMessage(
-            "[Gemini Status] Task:" + task + " | Kill:" + kill + " | Mine:" + mine + " | Drop:" + drop
-        );
-    }
-
-    private static void sendBaritoneCommand(MinecraftClient client, String cmd) {
+    private static void handleTpa(class_310 client, String playerName) {
+        if (playerName == null || playerName.isEmpty()) { sendFailed(client); return; }
+        if (!playerOnline(client, playerName))          { sendFailed(client); return; }
         client.execute(() -> {
-            if (client.player != null) {
-                client.player.networkHandler.sendChatMessage(cmd);
-                client.player.sendMessage(Text.literal("§7[Gemini] §f" + cmd), false);
+            if (client.field_1724 != null) {
+                client.field_1724.field_3944.method_45728("/tpa " + playerName);
+                client.field_1724.method_7353(
+                    class_2561.method_43470("§7[Gemini] §f/tpa " + playerName),
+                    false
+                );
             }
         });
     }
 
-    private static void sendFailed(MinecraftClient client) {
+    private static void handleTpAccept(class_310 client) {
         client.execute(() -> {
-            if (client.player != null) {
-                client.player.sendMessage(Text.literal("Failed."), false);
+            if (client.field_1724 != null) {
+                client.field_1724.field_3944.method_45728("/tpaccept");
+                client.field_1724.method_7353(
+                    class_2561.method_43470("§7[Gemini] §f/tpaccept"),
+                    false
+                );
             }
         });
     }
 
-    private static boolean playerOnline(MinecraftClient client, String name) {
-        if (client.getNetworkHandler() == null) return false;
-        for (PlayerListEntry entry : client.getNetworkHandler().getPlayerList()) {
-            if (entry.getProfile().name().equalsIgnoreCase(name)) return true;
+    private static void sendBaritoneCommand(class_310 client, String cmd) {
+        client.execute(() -> {
+            if (client.field_1724 != null) {
+                client.field_1724.field_3944.method_45729(cmd);
+                client.field_1724.method_7353(class_2561.method_43470("§7[Gemini→Baritone] §f" + cmd), false);
+            }
+        });
+    }
+
+    private static void sendFailed(class_310 client) {
+        client.execute(() -> {
+            if (client.field_1724 != null) {
+                client.field_1724.method_7353(class_2561.method_43470("Failed."), false);
+            }
+        });
+    }
+
+    private static boolean playerOnline(class_310 client, String name) {
+        if (client.method_1562() == null) return false;
+        for (class_640 entry : client.method_1562().method_2880()) {
+            if (entry.method_2966().name().equalsIgnoreCase(name)) return true;
         }
         return false;
     }
 
-    private static AbstractClientPlayerEntity findPlayerExact(MinecraftClient client, String name) {
-        if (client.world == null || name == null) return null;
-        for (AbstractClientPlayerEntity p : client.world.getPlayers()) {
-            if (p.getName().getString().equalsIgnoreCase(name)) return p;
+    private static class_742 findPlayerExact(class_310 client, String name) {
+        if (client.field_1687 == null || name == null) return null;
+        for (class_742 p : client.field_1687.method_18456()) {
+            if (p.method_5477().getString().equalsIgnoreCase(name)) return p;
         }
         return null;
     }
 
-    private static void aimAt(MinecraftClient client, AbstractClientPlayerEntity target) {
-        if (client.player == null) return;
-        Vec3d from  = client.player.getEyePos();
-        Vec3d to    = target.getEyePos();
-        double dx   = to.x - from.x;
-        double dy   = to.y - from.y;
-        double dz   = to.z - from.z;
-        double h    = Math.sqrt(dx * dx + dz * dz);
-        client.player.setYaw((float)(Math.toDegrees(Math.atan2(dz, dx))) - 90f);
-        client.player.setPitch((float)(-Math.toDegrees(Math.atan2(dy, h))));
+    private static void aimAt(class_310 client, class_742 target) {
+        if (client.field_1724 == null) return;
+        class_243 from = client.field_1724.method_33571();
+        class_243 to   = target.method_33571();
+        double dx  = to.field_1352 - from.field_1352;
+        double dy  = to.field_1351 - from.field_1351;
+        double dz  = to.field_1350 - from.field_1350;
+        double h   = Math.sqrt(dx * dx + dz * dz);
+        client.field_1724.method_36456((float)(Math.toDegrees(Math.atan2(dz, dx))) - 90f);
+        client.field_1724.method_36457((float)(-Math.toDegrees(Math.atan2(dy, h))));
     }
 
-    private static int countItem(MinecraftClient client, String itemPath) {
-        PlayerInventory inv = client.player.getInventory();
-        int count = 0;
-        for (int i = 0; i < inv.size(); i++) {
-            ItemStack stack = inv.getStack(i);
-            if (stack.isEmpty()) continue;
-            String id = Registries.ITEM.getId(stack.getItem()).getPath();
-            if (id.contains(itemPath)) count += stack.getCount();
-        }
-        return count;
-    }
-
-    private static void simulateKeyPress(MinecraftClient client, int glfwKey) {
+    private static void simulateKeyPress(class_310 client, int glfwKey) {
         client.execute(() -> {
-            long window  = client.getWindow().getHandle();
+            long window  = client.method_22683().method_4490();
             int scancode = GLFW.glfwGetKeyScancode(glfwKey);
             GLFWKeyCallbackI callback = GLFW.glfwSetKeyCallback(window, null);
             if (callback != null) {
@@ -504,7 +305,8 @@ public class GeminiBaritoneClient implements ClientModInitializer {
                 callback.invoke(window, glfwKey, scancode, GLFW.GLFW_PRESS,   0);
                 callback.invoke(window, glfwKey, scancode, GLFW.GLFW_RELEASE,  0);
             }
-            KeyBinding.onKeyPressed(InputUtil.Type.KEYSYM.createFromCode(glfwKey));
+            class_3675.class_306 key = class_3675.class_307.field_1668.method_1447(glfwKey);
+            class_304.method_1420(key);
         });
     }
 }
