@@ -1,8 +1,6 @@
 package com.gemini.baritonechat;
 
 import org.jetbrains.annotations.Nullable;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -13,128 +11,59 @@ public final class GeminiCommandParser {
 
     private GeminiCommandParser() {}
 
-    public enum CommandType {
-        STOP, FOLLOW, KILL, MINE, GOTO, TOWER_UP, WALK,
-        COORDS, HEALTH, DROP_ALL, DROP_AMOUNT
-    }
+    public enum CommandType { STOP, FOLLOW, KILL, MINE, GOTO, TOWER_UP, WALK, TPA, TPACCEPT }
 
     public static class GeminiCommand {
         public final CommandType type;
         public final String arg1;
         public final String arg2;
-        public final String arg3;
-        public GeminiCommand(CommandType t, String a1, String a2, String a3) {
-            type = t; arg1 = a1; arg2 = a2; arg3 = a3;
-        }
-        public GeminiCommand(CommandType t, String a1, String a2) { this(t, a1, a2, null); }
-        public GeminiCommand(CommandType t, String a1) { this(t, a1, null, null); }
-        public GeminiCommand(CommandType t) { this(t, null, null, null); }
+        public GeminiCommand(CommandType type, String arg1, String arg2) { this.type = type; this.arg1 = arg1; this.arg2 = arg2; }
+        public GeminiCommand(CommandType type, String arg1) { this(type, arg1, null); }
+        public GeminiCommand(CommandType type) { this(type, null, null); }
     }
 
     private static final String[][] VERB_ALIASES = {
-        { "stop",      "stop"    }, { "halt",     "stop"    }, { "cancel",   "stop"    },
-        { "quit",      "stop"    }, { "abort",    "stop"    }, { "pause",    "stop"    },
-        { "freeze",    "stop"    }, { "end",      "stop"    },
-        { "follow",    "follow"  }, { "fallow",   "follow"  }, { "folow",    "follow"  },
-        { "track",     "follow"  }, { "stalk",    "follow"  }, { "chase",    "follow"  },
-        { "shadow",    "follow"  },
-        { "kill",      "kill"    }, { "attack",   "kill"    }, { "fight",    "kill"    },
-        { "hit",       "kill"    }, { "murder",   "kill"    }, { "slay",     "kill"    },
-        { "pvp",       "kill"    }, { "kil",      "kill"    }, { "kll",      "kill"    },
-        { "atack",     "kill"    }, { "attck",    "kill"    },
-        { "mine",      "mine"    }, { "dig",      "mine"    }, { "collect",  "mine"    },
-        { "farm",      "mine"    }, { "gather",   "mine"    }, { "mne",      "mine"    },
-        { "mien",      "mine"    }, { "grind",    "mine"    }, { "harvest",  "mine"    },
-        { "goto",      "goto"    }, { "go",       "goto"    }, { "travel",   "goto"    },
-        { "move",      "goto"    }, { "head",     "goto"    }, { "navigate", "goto"    },
-        { "teleport",  "goto"    }, { "tp",       "goto"    }, { "warp",     "goto"    },
-        { "tower",     "tower"   }, { "build",    "tower"   }, { "climb",    "tower"   },
-        { "pillar",    "tower"   }, { "towerup",  "tower"   },
-        { "walk",      "walk"    }, { "nudge",    "walk"    }, { "step",     "walk"    },
-        { "forward",   "walk"    },
-        { "drop",      "drop"    }, { "give",     "drop"    }, { "throw",    "drop"    },
-        { "toss",      "drop"    }, { "share",    "drop"    },
+        { "stop",     "stop"   }, { "halt",     "stop"   }, { "cancel",   "stop"   },
+        { "quit",     "stop"   }, { "abort",    "stop"   }, { "pause",    "stop"   },
+        { "freeze",   "stop"   }, { "end",      "stop"   },
+        { "follow",   "follow" }, { "fallow",   "follow" }, { "folow",    "follow" },
+        { "track",    "follow" }, { "stalk",    "follow" }, { "chase",    "follow" },
+        { "shadow",   "follow" },
+        { "kill",     "kill"   }, { "attack",   "kill"   }, { "fight",    "kill"   },
+        { "hit",      "kill"   }, { "murder",   "kill"   }, { "slay",     "kill"   },
+        { "pvp",      "kill"   }, { "kil",      "kill"   }, { "kll",      "kill"   },
+        { "atack",    "kill"   }, { "attck",    "kill"   },
+        { "mine",     "mine"   }, { "dig",      "mine"   }, { "collect",  "mine"   },
+        { "farm",     "mine"   }, { "gather",   "mine"   }, { "mne",      "mine"   },
+        { "mien",     "mine"   }, { "grind",    "mine"   }, { "harvest",  "mine"   },
+        { "goto",     "goto"   }, { "go",       "goto"   }, { "travel",   "goto"   },
+        { "move",     "goto"   }, { "head",     "goto"   }, { "navigate", "goto"   },
+        { "teleport", "goto"   }, { "tp",       "goto"   }, { "warp",     "goto"   },
+        { "tower",    "tower"  }, { "build",    "tower"  }, { "climb",    "tower"  },
+        { "pillar",   "tower"  }, { "towerup",  "tower"  },
+        { "walk",     "walk"   }, { "nudge",    "walk"   }, { "step",     "walk"   },
+        { "forward",  "walk"   },
+        { "tpa",      "tpa"    }, { "teleportask", "tpa" }, { "tprequest","tpa"    },
     };
 
     private static final String[] TOWER_WORDS = {
         "tower", "pillar", "climb", "build", "towerup", "towering"
     };
 
-    // Common name → registry ID (or space-separated IDs for multi-match)
-    private static final Map<String, String> BLOCK_ALIASES = new HashMap<>();
-    static {
-        BLOCK_ALIASES.put("grass",          "grass_block");
-        BLOCK_ALIASES.put("path",           "dirt_path");
-        BLOCK_ALIASES.put("dirt path",      "dirt_path");
-        BLOCK_ALIASES.put("log",            "oak_log birch_log spruce_log jungle_log acacia_log dark_oak_log mangrove_log cherry_log");
-        BLOCK_ALIASES.put("wood",           "oak_log birch_log spruce_log jungle_log acacia_log dark_oak_log mangrove_log cherry_log");
-        BLOCK_ALIASES.put("oak",            "oak_log");
-        BLOCK_ALIASES.put("birch",          "birch_log");
-        BLOCK_ALIASES.put("spruce",         "spruce_log");
-        BLOCK_ALIASES.put("jungle",         "jungle_log");
-        BLOCK_ALIASES.put("acacia",         "acacia_log");
-        BLOCK_ALIASES.put("dark oak",       "dark_oak_log");
-        BLOCK_ALIASES.put("mangrove",       "mangrove_log");
-        BLOCK_ALIASES.put("cherry",         "cherry_log");
-        BLOCK_ALIASES.put("crimson",        "crimson_stem");
-        BLOCK_ALIASES.put("warped",         "warped_stem");
-        BLOCK_ALIASES.put("bamboo",         "bamboo_block");
-        BLOCK_ALIASES.put("planks",         "oak_planks birch_planks spruce_planks jungle_planks acacia_planks dark_oak_planks mangrove_planks cherry_planks crimson_planks warped_planks");
-        BLOCK_ALIASES.put("diamond",        "diamond_ore deepslate_diamond_ore");
-        BLOCK_ALIASES.put("iron",           "iron_ore deepslate_iron_ore");
-        BLOCK_ALIASES.put("gold",           "gold_ore deepslate_gold_ore nether_gold_ore");
-        BLOCK_ALIASES.put("coal",           "coal_ore deepslate_coal_ore");
-        BLOCK_ALIASES.put("copper",         "copper_ore deepslate_copper_ore");
-        BLOCK_ALIASES.put("emerald",        "emerald_ore deepslate_emerald_ore");
-        BLOCK_ALIASES.put("lapis",          "lapis_ore deepslate_lapis_ore");
-        BLOCK_ALIASES.put("redstone",       "redstone_ore deepslate_redstone_ore");
-        BLOCK_ALIASES.put("netherite",      "ancient_debris");
-        BLOCK_ALIASES.put("debris",         "ancient_debris");
-        BLOCK_ALIASES.put("quartz",         "nether_quartz_ore");
-        BLOCK_ALIASES.put("amethyst",       "amethyst_cluster budding_amethyst");
-        BLOCK_ALIASES.put("stone",          "stone");
-        BLOCK_ALIASES.put("cobble",         "cobblestone");
-        BLOCK_ALIASES.put("cobblestone",    "cobblestone");
-        BLOCK_ALIASES.put("deepslate",      "deepslate");
-        BLOCK_ALIASES.put("gravel",         "gravel");
-        BLOCK_ALIASES.put("sand",           "sand");
-        BLOCK_ALIASES.put("dirt",           "dirt");
-        BLOCK_ALIASES.put("clay",           "clay");
-        BLOCK_ALIASES.put("obsidian",       "obsidian");
-        BLOCK_ALIASES.put("glowstone",      "glowstone");
-        BLOCK_ALIASES.put("netherrack",     "netherrack");
-        BLOCK_ALIASES.put("soul sand",      "soul_sand");
-        BLOCK_ALIASES.put("magma",          "magma_block");
-        BLOCK_ALIASES.put("basalt",         "basalt");
-        BLOCK_ALIASES.put("endstone",       "end_stone");
-        BLOCK_ALIASES.put("end stone",      "end_stone");
-        BLOCK_ALIASES.put("purpur",         "purpur_block");
-        BLOCK_ALIASES.put("bookshelf",      "bookshelf");
-        BLOCK_ALIASES.put("tnt",            "tnt");
-        BLOCK_ALIASES.put("sponge",         "sponge");
-        BLOCK_ALIASES.put("ice",            "ice packed_ice blue_ice");
-        BLOCK_ALIASES.put("packed ice",     "packed_ice");
-        BLOCK_ALIASES.put("blue ice",       "blue_ice");
-        BLOCK_ALIASES.put("leaves",         "oak_leaves birch_leaves spruce_leaves jungle_leaves acacia_leaves dark_oak_leaves mangrove_leaves cherry_leaves azalea_leaves");
-        BLOCK_ALIASES.put("ore",            "diamond_ore deepslate_diamond_ore iron_ore deepslate_iron_ore gold_ore deepslate_gold_ore coal_ore deepslate_coal_ore copper_ore deepslate_copper_ore emerald_ore deepslate_emerald_ore lapis_ore deepslate_lapis_ore redstone_ore deepslate_redstone_ore nether_gold_ore nether_quartz_ore ancient_debris");
-    }
+    private static final String[] TPA_PHRASES = {
+        "tpa", "send tpa", "do tpa", "do /tpa", "send a tpa", "request tp",
+        "tp request", "teleport request", "teleport ask", "ask to tp",
+        "ask for tp", "request teleport", "send tp request"
+    };
 
-    @Nullable
-    public static String resolveBlock(String name) {
-        String lower = name.toLowerCase().replace("-", " ").trim();
-        if (BLOCK_ALIASES.containsKey(lower)) return BLOCK_ALIASES.get(lower);
-        String underscored = lower.replace(" ", "_");
-        if (BLOCK_ALIASES.containsKey(underscored)) return BLOCK_ALIASES.get(underscored);
-        return null;
-    }
+    private static final String[] TPACCEPT_PHRASES = {
+        "tpaccept", "tp accept", "accept tp", "accept teleport",
+        "accept the tp", "do /tpaccept", "/tpaccept", "accept the teleport",
+        "yes tp", "accept it"
+    };
 
     @Nullable
     public static GeminiCommand parse(String rawMessage) {
-        return parse(rawMessage, null);
-    }
-
-    @Nullable
-    public static GeminiCommand parse(String rawMessage, @Nullable String senderName) {
         if (rawMessage == null) return null;
 
         String clean = rawMessage.replaceAll("§[0-9a-fk-or]", "").trim();
@@ -153,22 +82,20 @@ public final class GeminiCommandParser {
         if (body.isEmpty()) return null;
         String lower = body.toLowerCase();
 
-        // Health — keyword scan anywhere in sentence
-        if (containsAny(lower, "health", "hp", "hearts", "hunger", "hungry", "hurt", "dying",
-                "how much health", "what's your health", "ur health", "your health")) {
-            return new GeminiCommand(CommandType.HEALTH);
+        for (String phrase : TPACCEPT_PHRASES) {
+            if (lower.contains(phrase)) {
+                return new GeminiCommand(CommandType.TPACCEPT);
+            }
         }
 
-        // Coords — keyword scan anywhere in sentence
-        if (containsAny(lower, "coords", "coordinates", "location", "position", "where are you",
-                "where r u", "where r you", "ur coords", "your coords", "pos", "where am i")) {
-            return new GeminiCommand(CommandType.COORDS);
+        for (String phrase : TPA_PHRASES) {
+            if (lower.contains(phrase)) {
+                String player = extractPlayerAfterPhrase(body, phrase);
+                if (player != null) return new GeminiCommand(CommandType.TPA, player);
+            }
         }
 
-        String[] words   = lower.split("\\s+");
-        int spaceIdx     = lower.indexOf(' ');
-        String firstVerb = spaceIdx == -1 ? lower : lower.substring(0, spaceIdx);
-
+        String[] words = lower.split("\\s+");
         boolean hasTowerKeyword = false;
         boolean hasUp = false;
         for (String w : words) {
@@ -177,6 +104,9 @@ public final class GeminiCommandParser {
                 if (w.equals(tw) || levenshtein(w, tw) <= 1) hasTowerKeyword = true;
             }
         }
+
+        int spaceIdx     = lower.indexOf(' ');
+        String firstVerb = spaceIdx == -1 ? lower : lower.substring(0, spaceIdx);
         if ("tower".equals(resolveVerb(firstVerb))) hasTowerKeyword = true;
 
         boolean isGoUp = false;
@@ -206,62 +136,27 @@ public final class GeminiCommandParser {
             case "stop"   -> new GeminiCommand(CommandType.STOP);
             case "follow" -> rest.isEmpty() ? null : new GeminiCommand(CommandType.FOLLOW, rest);
             case "kill"   -> rest.isEmpty() ? null : new GeminiCommand(CommandType.KILL, rest);
+            case "mine"   -> rest.isEmpty() ? null : new GeminiCommand(CommandType.MINE, normaliseBlock(rest));
             case "goto"   -> rest.isEmpty() ? null : new GeminiCommand(CommandType.GOTO, rest);
             case "walk"   -> new GeminiCommand(CommandType.WALK, rest.isEmpty() ? "1" : rest);
-
-            case "drop" -> {
-                // "drop all [to <player>]"
-                if (restLow.startsWith("all")) {
-                    String target = extractTo(rest);
-                    if (target == null) target = senderName; // auto-detect sender
-                    yield new GeminiCommand(CommandType.DROP_ALL, target);
-                }
-                // "drop <number> <item> [to <player>]"
-                Matcher m = NUMBER.matcher(restLow);
-                if (m.find()) {
-                    String count    = m.group();
-                    String after    = rest.substring(m.end()).trim();
-                    String target   = extractTo(after);
-                    String itemPart = target != null
-                        ? after.substring(0, after.toLowerCase().lastIndexOf(" to ")).trim()
-                        : after.trim();
-                    if (target == null) target = senderName;
-                    yield new GeminiCommand(CommandType.DROP_AMOUNT, count, itemPart, target);
-                }
-                yield null;
-            }
-
-            case "mine" -> {
-                if (rest.isEmpty()) yield null;
-                String[] parts = rest.split("\\s+");
-                if (parts.length >= 2) {
-                    String last = parts[parts.length - 1];
-                    try {
-                        int count        = Integer.parseInt(last);
-                        String blockRaw  = rest.substring(0, rest.lastIndexOf(last)).trim();
-                        yield new GeminiCommand(CommandType.MINE, normaliseBlock(blockRaw), String.valueOf(count));
-                    } catch (NumberFormatException ignored) {}
-                }
-                yield new GeminiCommand(CommandType.MINE, normaliseBlock(rest));
-            }
-
-            default -> null;
+            case "tpa"    -> rest.isEmpty() ? null : new GeminiCommand(CommandType.TPA, rest);
+            default       -> null;
         };
     }
 
     @Nullable
-    private static String extractTo(String text) {
-        int idx = text.toLowerCase().lastIndexOf(" to ");
+    private static String extractPlayerAfterPhrase(String body, String phrase) {
+        int idx = body.toLowerCase().indexOf(phrase);
         if (idx == -1) return null;
-        String target = text.substring(idx + 4).trim();
-        return target.isEmpty() ? null : target;
-    }
-
-    private static boolean containsAny(String haystack, String... needles) {
-        for (String n : needles) {
-            if (haystack.contains(n)) return true;
+        String after = body.substring(idx + phrase.length()).trim();
+        for (String filler : new String[]{"to ", "with ", "for "}) {
+            if (after.toLowerCase().startsWith(filler)) {
+                after = after.substring(filler.length()).trim();
+                break;
+            }
         }
-        return false;
+        String[] parts = after.split("\\s+");
+        return (parts.length > 0 && !parts[0].isEmpty()) ? parts[0] : null;
     }
 
     @Nullable
@@ -278,7 +173,7 @@ public final class GeminiCommandParser {
         return (bestDist <= 2) ? bestCanonical : null;
     }
 
-    public static String normaliseBlock(String raw) {
+    private static String normaliseBlock(String raw) {
         String s = raw.toLowerCase().replace(" ", "_").replace("-", "_");
         if (s.length() > 4 && s.endsWith("s") && !s.endsWith("ss")) {
             s = s.substring(0, s.length() - 1);
