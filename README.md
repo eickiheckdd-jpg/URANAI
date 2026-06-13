@@ -2,7 +2,7 @@
 
 A Fabric client-side mod for Minecraft 1.21.11 that lets other players control Baritone through in-game chat — just by saying "hey gemini" followed by whatever you want it to do.
 
-If you want the full experience, pair it with [U.R.A.I by L33T](https://modrinth.com/mod/urai). U.R.A.I makes your client respond to chat messages using the Google Gemini AI API, so when combined with this mod it genuinely looks like an AI is reading the chat and acting on it in real time. The two mods were basically made for each other.
+If you want the full experience, pair it with [U.R.A.I by L33T](https://modrinth.com/mod/urai). U.R.A.I makes your client respond to chat messages using the Google Gemini AI API, so when combined with this mod it genuinely looks like an AI is reading the chat and acting on it in real time.
 
 ---
 
