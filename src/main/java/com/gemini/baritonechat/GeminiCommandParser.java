@@ -4,6 +4,13 @@ import org.jetbrains.annotations.Nullable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Natural-language parser with:
+ *  - alias mapping  (attack → kill, dig → mine, halt → stop, etc.)
+ *  - typo tolerance (Levenshtein distance ≤ 2 on the verb)
+ *  - block name normalisation (spaces → _, plural stripping)
+ *  - tower: number + tower keyword can appear in ANY order/position
+ */
 public final class GeminiCommandParser {
 
     private static final String PREFIX = "hey gemini ";
@@ -11,7 +18,7 @@ public final class GeminiCommandParser {
 
     private GeminiCommandParser() {}
 
-    public enum CommandType { STOP, FOLLOW, KILL, MINE, GOTO, TOWER_UP, WALK, TPA, TPACCEPT }
+    public enum CommandType { STOP, FOLLOW, KILL, MINE, GOTO, TOWER_UP, WALK }
 
     public static class GeminiCommand {
         public final CommandType type;
@@ -22,52 +29,52 @@ public final class GeminiCommandParser {
         public GeminiCommand(CommandType type) { this(type, null, null); }
     }
 
+    // ── Verb → canonical verb ─────────────────────────────────────────────────
     private static final String[][] VERB_ALIASES = {
-        { "stop",     "stop"   }, { "halt",     "stop"   }, { "cancel",   "stop"   },
-        { "quit",     "stop"   }, { "abort",    "stop"   }, { "pause",    "stop"   },
-        { "freeze",   "stop"   }, { "end",      "stop"   },
-        { "follow",   "follow" }, { "fallow",   "follow" }, { "folow",    "follow" },
-        { "track",    "follow" }, { "stalk",    "follow" }, { "chase",    "follow" },
-        { "shadow",   "follow" },
-        { "kill",     "kill"   }, { "attack",   "kill"   }, { "fight",    "kill"   },
-        { "hit",      "kill"   }, { "murder",   "kill"   }, { "slay",     "kill"   },
-        { "pvp",      "kill"   }, { "kil",      "kill"   }, { "kll",      "kill"   },
-        { "atack",    "kill"   }, { "attck",    "kill"   },
-        { "mine",     "mine"   }, { "dig",      "mine"   }, { "collect",  "mine"   },
-        { "farm",     "mine"   }, { "gather",   "mine"   }, { "mne",      "mine"   },
-        { "mien",     "mine"   }, { "grind",    "mine"   }, { "harvest",  "mine"   },
-        { "goto",     "goto"   }, { "go",       "goto"   }, { "travel",   "goto"   },
-        { "move",     "goto"   }, { "head",     "goto"   }, { "navigate", "goto"   },
-        { "teleport", "goto"   }, { "tp",       "goto"   }, { "warp",     "goto"   },
-        { "tower",    "tower"  }, { "build",    "tower"  }, { "climb",    "tower"  },
-        { "pillar",   "tower"  }, { "towerup",  "tower"  },
-        { "walk",     "walk"   }, { "nudge",    "walk"   }, { "step",     "walk"   },
-        { "forward",  "walk"   },
-        { "tpa",      "tpa"    }, { "teleportask", "tpa" }, { "tprequest","tpa"    },
+        // STOP
+        { "stop",    "stop"   }, { "halt",     "stop"   }, { "cancel",   "stop"   },
+        { "quit",    "stop"   }, { "abort",    "stop"   }, { "pause",    "stop"   },
+        { "freeze",  "stop"   }, { "end",      "stop"   },
+        // FOLLOW
+        { "follow",  "follow" }, { "fallow",   "follow" }, { "folow",    "follow" },
+        { "track",   "follow" }, { "stalk",    "follow" }, { "chase",    "follow" },
+        { "shadow",  "follow" },
+        // KILL
+        { "kill",    "kill"   }, { "attack",   "kill"   }, { "fight",    "kill"   },
+        { "hit",     "kill"   }, { "murder",   "kill"   }, { "slay",     "kill"   },
+        { "pvp",     "kill"   }, { "kil",      "kill"   }, { "kll",      "kill"   },
+        { "atack",   "kill"   }, { "attck",    "kill"   },
+        // MINE
+        { "mine",    "mine"   }, { "dig",      "mine"   }, { "collect",  "mine"   },
+        { "farm",    "mine"   }, { "gather",   "mine"   }, { "mne",      "mine"   },
+        { "mien",    "mine"   }, { "grind",    "mine"   }, { "harvest",  "mine"   },
+        // GOTO
+        { "goto",    "goto"   }, { "go",       "goto"   }, { "travel",   "goto"   },
+        { "move",    "goto"   }, { "head",     "goto"   }, { "navigate", "goto"   },
+        { "teleport","goto"   }, { "tp",       "goto"   }, { "warp",     "goto"   },
+        // TOWER — intentionally NOT including "up" or "walk" here to avoid
+        // collisions; they are recognised only when a tower word is also present
+        { "tower",   "tower"  }, { "build",    "tower"  }, { "climb",    "tower"  },
+        { "pillar",  "tower"  }, { "towerup",  "tower"  },
+        // WALK (short nudge — only triggered when NO tower word present)
+        { "walk",    "walk"   }, { "nudge",    "walk"   }, { "step",     "walk"   },
+        { "forward", "walk"   },
     };
 
+    // Words that count as "tower intent" when scanning the whole sentence
     private static final String[] TOWER_WORDS = {
         "tower", "pillar", "climb", "build", "towerup", "towering"
     };
 
-    private static final String[] TPA_PHRASES = {
-        "tpa", "send tpa", "do tpa", "do /tpa", "send a tpa", "request tp",
-        "tp request", "teleport request", "teleport ask", "ask to tp",
-        "ask for tp", "request teleport", "send tp request"
-    };
-
-    private static final String[] TPACCEPT_PHRASES = {
-        "tpaccept", "tp accept", "accept tp", "accept teleport",
-        "accept the tp", "do /tpaccept", "/tpaccept", "accept the teleport",
-        "yes tp", "accept it"
-    };
-
+    // ── Parse ─────────────────────────────────────────────────────────────────
     @Nullable
     public static GeminiCommand parse(String rawMessage) {
         if (rawMessage == null) return null;
 
+        // Strip colour codes
         String clean = rawMessage.replaceAll("§[0-9a-fk-or]", "").trim();
 
+        // Strip "<PlayerName> " or "PlayerName: " chat prefix
         if (clean.startsWith("<")) {
             int close = clean.indexOf("> ");
             if (close != -1) clean = clean.substring(close + 2).trim();
@@ -82,33 +89,32 @@ public final class GeminiCommandParser {
         if (body.isEmpty()) return null;
         String lower = body.toLowerCase();
 
-        for (String phrase : TPACCEPT_PHRASES) {
-            if (lower.contains(phrase)) {
-                return new GeminiCommand(CommandType.TPACCEPT);
-            }
-        }
-
-        for (String phrase : TPA_PHRASES) {
-            if (lower.contains(phrase)) {
-                String player = extractPlayerAfterPhrase(body, phrase);
-                if (player != null) return new GeminiCommand(CommandType.TPA, player);
-            }
-        }
-
+        // ── TOWER: scan every word for a tower keyword ────────────────────────
+        // Handles any word order:
+        //   "tower up 26 blocks"   "26 blocks tower up"
+        //   "tower 26 blocks up"   "build me a pillar 30 high"
+        //   "climb up 10"          "hey go up 15 blocks" etc.
         String[] words = lower.split("\\s+");
+
+        // Does the sentence contain "up" AND a number AND at least one tower word?
+        // OR just a tower word + number (without requiring "up")?
         boolean hasTowerKeyword = false;
         boolean hasUp = false;
         for (String w : words) {
             if (w.equals("up")) hasUp = true;
             for (String tw : TOWER_WORDS) {
-                if (w.equals(tw) || levenshtein(w, tw) <= 1) hasTowerKeyword = true;
+                if (w.equals(tw) || levenshtein(w, tw) <= 1) {
+                    hasTowerKeyword = true;
+                }
             }
         }
 
-        int spaceIdx     = lower.indexOf(' ');
+        // Also catch: first verb resolves to "tower" via alias
+        int spaceIdx = lower.indexOf(' ');
         String firstVerb = spaceIdx == -1 ? lower : lower.substring(0, spaceIdx);
         if ("tower".equals(resolveVerb(firstVerb))) hasTowerKeyword = true;
 
+        // "go up 20" / "move up 10 blocks" — goto verb + "up" + number
         boolean isGoUp = false;
         if (hasUp && !hasTowerKeyword) {
             String fv = resolveVerb(firstVerb);
@@ -121,12 +127,14 @@ public final class GeminiCommandParser {
             return new GeminiCommand(CommandType.TOWER_UP, amount);
         }
 
-        String rest    = spaceIdx == -1 ? "" : body.substring(spaceIdx + 1).trim();
+        // ── Normal verb-first parsing ─────────────────────────────────────────
+        String rest    = spaceIdx == -1 ? ""    : body.substring(spaceIdx + 1).trim();
         String restLow = rest.toLowerCase();
 
         String canonical = resolveVerb(firstVerb);
         if (canonical == null) return null;
 
+        // "go to <dest>"
         if (canonical.equals("goto") && restLow.startsWith("to ")) {
             rest    = rest.substring(3).trim();
             restLow = rest.toLowerCase();
@@ -134,31 +142,28 @@ public final class GeminiCommandParser {
 
         return switch (canonical) {
             case "stop"   -> new GeminiCommand(CommandType.STOP);
-            case "follow" -> rest.isEmpty() ? null : new GeminiCommand(CommandType.FOLLOW, rest);
-            case "kill"   -> rest.isEmpty() ? null : new GeminiCommand(CommandType.KILL, rest);
-            case "mine"   -> rest.isEmpty() ? null : new GeminiCommand(CommandType.MINE, normaliseBlock(rest));
-            case "goto"   -> rest.isEmpty() ? null : new GeminiCommand(CommandType.GOTO, rest);
-            case "walk"   -> new GeminiCommand(CommandType.WALK, rest.isEmpty() ? "1" : rest);
-            case "tpa"    -> rest.isEmpty() ? null : new GeminiCommand(CommandType.TPA, rest);
-            default       -> null;
+            case "follow" -> {
+                if (rest.isEmpty()) yield null;
+                yield new GeminiCommand(CommandType.FOLLOW, rest);
+            }
+            case "kill" -> {
+                if (rest.isEmpty()) yield null;
+                yield new GeminiCommand(CommandType.KILL, rest);
+            }
+            case "mine" -> {
+                if (rest.isEmpty()) yield null;
+                yield new GeminiCommand(CommandType.MINE, normaliseBlock(rest));
+            }
+            case "goto" -> {
+                if (rest.isEmpty()) yield null;
+                yield new GeminiCommand(CommandType.GOTO, rest);
+            }
+            case "walk" -> new GeminiCommand(CommandType.WALK, rest.isEmpty() ? "1" : rest);
+            default -> null;
         };
     }
 
-    @Nullable
-    private static String extractPlayerAfterPhrase(String body, String phrase) {
-        int idx = body.toLowerCase().indexOf(phrase);
-        if (idx == -1) return null;
-        String after = body.substring(idx + phrase.length()).trim();
-        for (String filler : new String[]{"to ", "with ", "for "}) {
-            if (after.toLowerCase().startsWith(filler)) {
-                after = after.substring(filler.length()).trim();
-                break;
-            }
-        }
-        String[] parts = after.split("\\s+");
-        return (parts.length > 0 && !parts[0].isEmpty()) ? parts[0] : null;
-    }
-
+    // ── Verb resolution ───────────────────────────────────────────────────────
     @Nullable
     private static String resolveVerb(String verb) {
         for (String[] pair : VERB_ALIASES) {
@@ -173,14 +178,17 @@ public final class GeminiCommandParser {
         return (bestDist <= 2) ? bestCanonical : null;
     }
 
+    // ── Block name normalisation ──────────────────────────────────────────────
     private static String normaliseBlock(String raw) {
         String s = raw.toLowerCase().replace(" ", "_").replace("-", "_");
+        // Strip plural trailing-s: "logs"→"log", "diamonds"→"diamond"
         if (s.length() > 4 && s.endsWith("s") && !s.endsWith("ss")) {
             s = s.substring(0, s.length() - 1);
         }
         return s;
     }
 
+    // ── Levenshtein distance ──────────────────────────────────────────────────
     private static int levenshtein(String a, String b) {
         int la = a.length(), lb = b.length();
         int[][] dp = new int[la + 1][lb + 1];
