@@ -16,13 +16,17 @@ repositories {
         name = 'Fabric'
         url = 'https://maven.fabricmc.net/'
     }
+    maven {
+        name = 'TerraformersMC'
+        url = 'https://maven.terraformersmc.com/releases/'
+    }
 }
 
 loom {
     splitEnvironmentSourceSets()
 
     mods {
-        'gemini-baritone' {
+        "gemini-baritone" {
             sourceSet sourceSets.main
             sourceSet sourceSets.client
         }
@@ -35,8 +39,10 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-    // Local Baritone jar â€” put baritone-meteor-1.21.11.jar in the libs/ folder
     modCompileOnly fileTree(dir: 'libs', include: ['*.jar'])
+
+    modImplementation "me.shedaniel.cloth:cloth-config-fabric:21.11.153"
+    modImplementation "com.terraformersmc:modmenu:17.0.0"
 }
 
 processResources {
